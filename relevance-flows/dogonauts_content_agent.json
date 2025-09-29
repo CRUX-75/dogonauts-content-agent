@@ -1,0 +1,96 @@
+{
+  "workflow_id": "dogonauts_content_agent_v1",
+  "name": "Dogonauts Content Agent",
+  "description": "Automated workflow for generating and publishing Dogonauts content on Instagram and Facebook.",
+  "nodes": [
+    {
+      "id": "trigger_scheduler",
+      "type": "scheduler",
+      "config": {
+        "frequency": "weekly",
+        "days": [
+          "monday",
+          "wednesday",
+          "friday"
+        ],
+        "time": "19:00",
+        "timezone": "Europe/Berlin"
+      }
+    },
+    {
+      "id": "campaigns_data_store",
+      "type": "data_store_lookup",
+      "config": {
+        "source": "campaigns.json",
+        "conditions": [
+          "active_from <= today <= active_to"
+        ]
+      }
+    },
+    {
+      "id": "rules_node",
+      "type": "rules",
+      "config": {
+        "priority": "select_highest",
+        "stock_check": true
+      }
+    },
+    {
+      "id": "products_lookup",
+      "type": "data_store_lookup",
+      "config": {
+        "source": "products_sample.json",
+        "conditions": [
+          "stock > min_stock_threshold"
+        ]
+      }
+    },
+    {
+      "id": "copywriter_agent",
+      "type": "llm_agent",
+      "config": {
+        "model": "gpt-4",
+        "prompt_template": "Generate 2\u20133 captions in {locale} for {product}, with hook, benefit, CTA (dogonauts.de). Tone: {copy_tone}."
+      }
+    },
+    {
+      "id": "image_composer",
+      "type": "custom_tool",
+      "config": {
+        "integration": "bannerbear",
+        "template": "{creative_template}",
+        "assets_source": "assets_folder"
+      }
+    },
+    {
+      "id": "qa_node",
+      "type": "slack_review",
+      "config": {
+        "channel": "#dogonauts-content",
+        "approval_required": true
+      }
+    },
+    {
+      "id": "publisher",
+      "type": "http_request",
+      "config": {
+        "api": "meta_graph_api",
+        "channels": [
+          "instagram_feed",
+          "facebook_feed"
+        ]
+      }
+    },
+    {
+      "id": "analytics_store",
+      "type": "data_store_write",
+      "config": {
+        "metrics": [
+          "engagement",
+          "ctr",
+          "best_performers"
+        ]
+      }
+    }
+  ]
+}

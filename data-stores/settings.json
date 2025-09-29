@@ -1,0 +1,11 @@
+{
+  "global_freeze": false,
+  "default_locale": "de",
+  "qa_required": true,
+  "min_stock_threshold": 5,
+  "timezone": "Europe/Berlin",
+  "posting_schedule": {
+    "instagram_feed": ["Mon 19:00", "Wed 19:00", "Sat 11:00"],
+    "facebook_feed": ["Tue 20:00", "Thu 20:00", "Sun 12:00"]
+  }
+}
