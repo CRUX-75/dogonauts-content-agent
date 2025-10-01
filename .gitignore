@@ -1,6 +1,16 @@
-.env
-.env.local
+# n8n data (contiene credenciales)
 n8n-data/
-*.db
+
+# Environment variables (API keys)
+.env
+docker-compose.yml
+
+# Docker volumes
+workflows/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs
 *.log
-credentials/*.json
