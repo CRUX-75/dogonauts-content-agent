@@ -161,7 +161,7 @@ async function fetchFBInsights(postId: string): Promise<Pick<Metrics, "impressio
   if (!r.ok) {
     const txt = await r.text();
     console.warn(`FB insights soft-fail: ${r.status} ${txt}`);
-S   return {};
+   return {};
   }
   const j = await r.json();
   const map: Record<string, number> = {};
