@@ -1,0 +1,18 @@
+[
+  {
+    "product_id": "RINTI_JUNIOR_CHICKEN",
+    "name": "Rinti Kennerfleisch Junior mit Huhn",
+    "category": "Futter",
+    "tags": ["puppy", "chicken", "premium"],
+    "stock": 120,
+    "image": "/assets/products/rinti_junior_chicken.png"
+  },
+  {
+    "product_id": "DOGONAUTS_SNACKS_XMAS",
+    "name": "Dogonauts Weihnachts-Snackbox",
+    "category": "Snacks",
+    "tags": ["xmas", "snacks", "limited"],
+    "stock": 45,
+    "image": "/assets/products/snacks_xmas.png"
+  }
+]

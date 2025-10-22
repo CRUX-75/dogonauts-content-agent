@@ -1,0 +1,59 @@
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/README.md b/README.md[m
+[1mindex 49f7e7e..a62b9d3 100644[m
+[1m--- a/README.md[m
+[1m+++ b/README.md[m
+[36m@@ -1,2 +1,48 @@[m
+[31m-# dogonauts-content-agent[m
+[31m-Automated Content Agent for Dogonauts – powered by Relevance AI, GitHub, and Genflowautomation best practices.[m
+[32m+[m[32m# Dogonauts Content Agent[m
+[32m+[m
+[32m+[m[32mMulti-agent system for automated social media content generation using n8n, Claude API, and Supabase.[m
+[32m+[m
+[32m+[m[32m## Architecture[m
+[32m+[m
+[32m+[m[32m- **Agent 1:** Campaign Strategist - Determines content type based on schedule[m
+[32m+[m[32m- **Agent 2:** Copywriting - Generates German copy using Claude Sonnet 4[m
+[32m+[m
+[32m+[m[32m## Stack[m
+[32m+[m
+[32m+[m[32m- n8n (Docker)[m
+[32m+[m[32m- Supabase (PostgreSQL)[m
+[32m+[m[32m- Claude API (Anthropic)[m
+[32m+[m[32m- Docker Compose[m
+[32m+[m
+[32m+[m[32m## Setup[m
+[32m+[m
+[32m+[m[32m1. Install Docker Desktop[m
+[32m+[m[32m2. Copy `.env.example` to `.env` and add API keys[m
+[32m+[m[32m3. Run `docker-compose up -d`[m
+[32m+[m[32m4. Import workflow JSON to n8n[m
+[32m+[m[32m5. Configure Supabase credentials[m
+[32m+[m
+[32m+[m[32m## Status[m
+[32m+[m
+[32m+[m[32m- ✅ Phase 1: Agent 1 + 2 (Complete)[m
+[32m+[m[32m- ⏳ Phase 2: Visual Generation[m
+[32m+[m[32m- ⏳ Phase 3: QA & Approval[m
+[32m+[m[32m- ⏳ Phase 4: Publishing[m
+[32m+[m[32m- ⏳ Phase 5: Analytics[m
+[32m+[m
+[32m+[m[32m## Schedule[m
+[32m+[m
+[32m+[m[32mPosts generated automatically:[m
+[32m+[m[32m- Monday 19:00 - Product focus[m
+[32m+[m[32m- Wednesday 19:00 - Educational[m
+[32m+[m[32m- Friday 19:00 - Lifestyle[m
+[32m+[m
+[32m+[m[32m## Database Schema[m
+[32m+[m
+[32m+[m[32mSee Supabase project: `dogonauts-content-agent`[m
+[32m+[m
+[32m+[m[32mTables:[m
+[32m+[m[32m- campaigns[m
+[32m+[m[32m- products[m
+[32m+[m[32m- product_assets[m
+[32m+[m[32m- post_history[m
+[1mdiff --git a/n8n-data/database.sqlite b/n8n-data/database.sqlite[m
+[1mindex cd2c3a7..6e82baf 100644[m
+Binary files a/n8n-data/database.sqlite and b/n8n-data/database.sqlite differ

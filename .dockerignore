@@ -1,0 +1,17 @@
+# Dependencias y artefactos de build
+node_modules
+dist
+npm-debug.log*
+*.log
+
+# Datos y carpetas del proyecto n8n viejo
+n8n-data
+exported-workflows
+infra
+
+# Git y entorno
+.git
+.gitignore
+.dockerignore
+.env
+.env.*
