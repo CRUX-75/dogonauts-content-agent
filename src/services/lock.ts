@@ -1,18 +1,39 @@
-import { getSupabaseSafe } from './supabase.js';
+// src/services/lock.ts
+import { getSupabaseSafe } from './metrics.js'; // <-- Importa de metrics.ts
 
-const KEY = "runbatch-lmv-1900";
+// Función para adquirir un lock (ej. 'cronjob')
+export async function acquireLock(lockName: string, durationMinutes = 5) {
+  const supabase = getSupabaseSafe();
+  const expiresAt = new Date(Date.now() + durationMinutes * 60000).toISOString();
 
-export async function acquireLock(owner: string): Promise<boolean> {
-  // limpia locks vencidos
-  await supabase.rpc("delete_expired_job_locks").catch(() => {});
-  const { error } = await supabase.from("job_locks").insert({
-    key: KEY,
-    owner,
-    ttl_seconds: 900
-  });
-  return !error;
+  // Intenta insertar el lock. Falla si ya existe (unique constraint).
+  const { data, error } = await supabase
+    .from('locks')
+    .insert({ name: lockName, expires_at: expiresAt })
+    .select()
+    .single();
+
+  if (error) {
+    // Si el 'name' ya existe (unique constraint), el lock está tomado
+    if (error.code === '23505') {
+      return null; // No se pudo adquirir el lock
+    }
+    throw error;
+  }
+  return data; // Lock adquirido
 }
 
-export async function releaseLock(owner: string): Promise<void> {
-  await supabase.from("job_locks").delete().eq("key", "runbatch-lmv-1900").eq("owner", owner);
+// Función para liberar un lock
+export async function releaseLock(lockName: string) {
+  const supabase = getSupabaseSafe();
+  const { error } = await supabase
+    .from('locks')
+    .delete()
+    .eq('name', lockName);
+
+  if (error) {
+    console.error(`Error releasing lock ${lockName}:`, error.message);
+    throw error;
+  }
+  return true;
 }

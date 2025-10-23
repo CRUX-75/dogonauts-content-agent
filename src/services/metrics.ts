@@ -16,7 +16,7 @@ const META_TOKEN = process.env.META_ACCESS_TOKEN || "";
 
 // ---------- Lazy Supabase Client ----------
 let sb: SupabaseClient | null = null;
-function getSupabaseSafe(): SupabaseClient {
+export function getSupabaseSafe(): SupabaseClient {
   if (sb) return sb;
 
   const url = process.env.SUPABASE_URL;
