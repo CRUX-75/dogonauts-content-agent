@@ -1,7 +1,7 @@
 // src/services/publishers/instagram.ts
 import fetch from 'node-fetch';
-import { withRetry } from '../../core/retry';
-import { createCircuit } from '../../core/circuit';
+import { withRetry } from '../../core/retry.js';
+import { createCircuit } from '../../core/circuit.js';
 
 const META_TOKEN = process.env.META_ACCESS_TOKEN!;
 const IG_ACCOUNT_ID = process.env.IG_ACCOUNT_ID!;

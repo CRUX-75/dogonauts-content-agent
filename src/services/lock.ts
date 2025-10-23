@@ -1,4 +1,4 @@
-import { supabase } from "../tools/supabaseClient";
+import { supabase } from "../tools/supabaseClient.js";
 
 const KEY = "runbatch-lmv-1900";
 

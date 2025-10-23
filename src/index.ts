@@ -2,8 +2,8 @@ import dotenv from "dotenv";
 dotenv.config({ path: ".env" });
 
 import express, { Request, Response } from "express";
-import { runBatch } from "./agent";
-import { canPublishNow, explainWindows } from "./services/scheduler";
+import { runBatch } from "./agent.js";
+import { canPublishNow, explainWindows } from "./services/scheduler.js";
 
 // Endurece procesos
 process.on("unhandledRejection", (reason) => console.error("Unhandled Rejection:", reason));
@@ -87,7 +87,7 @@ app.post("/run", async (req: Request, res: Response) => {
 // ------------------ metrics collect ------------------
 app.post("/api/collect-metrics", async (req: Request, res: Response) => {
   try {
-    const { collectMetricsOnce } = await import("./services/metrics");
+    const { collectMetricsOnce } = await import("./services/metrics.js");
 
     const items: Array<{
       platform: "instagram" | "facebook";
