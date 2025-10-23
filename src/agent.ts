@@ -98,128 +98,128 @@ export async function runBatch({
   const campaign = String(campaign_name || "");
   const style: CaptionStyle = templateStyle || pickStyleByCampaign(campaign);
 
-  // 2) Por item
-  for (const p of items) {
-    try {
-      // 2.1 Caption base con plantilla
-      const baseCaption = renderCaption(style, {
-        productName: p.product_name,
-        brand: "Dogonauts",
-        benefit: p.main_benefit,
-        hashtagBase: ["#dogonauts", "#perrosfelices", "#doglover"],
-        season: /invierno|winter/i.test(p.campaign_name || campaign) ? "winter" : undefined,
-        tone: "playful",
-      });
+ // 2) Por item
+  for (const p of items) {
+    try {
+      // 2.1 Caption base con plantilla
+      const baseCaption = renderCaption(style, {
+        productName: p.product_name || '', // <-- CORREGIDO
+        brand: "Dogonauts",
+        benefit: p.main_benefit || '', // <-- CORREGIDO
+        hashtagBase: ["#dogonauts", "#perrosfelices", "#doglover"],
+        season: /invierno|winter/i.test(p.campaign_name || campaign) ? "winter" : undefined,
+        tone: "playful",
+      });
 
-      // 2.2 Refino opcional con OpenAI (si hay key)
-      const shouldRefine = captionRefine === false ? false : !!process.env.OPENAI_API_KEY;
-      let caption = baseCaption;
-      if (shouldRefine) {
-        try {
-          caption = await refineWithOpenAI(baseCaption);
-        } catch (e: any) {
-          await logEvent("warn", "Refine failed, using baseCaption", {
-            product_id: p.product_id,
-            err: e?.message,
-          });
-          caption = baseCaption;
-        }
-      }
+      // 2.2 Refino opcional con OpenAI (si hay key)
+      const shouldRefine = captionRefine === false ? false : !!process.env.OPENAI_API_KEY;
+      let caption = baseCaption;
+      if (shouldRefine) {
+        try {
+          caption = await refineWithOpenAI(baseCaption);
+        } catch (e: any) {
+          await logEvent("warn", "Refine failed, using baseCaption", {
+            product_id: p.product_id,
+            err: e?.message,
+          });
+          caption = baseCaption;
+        }
+      }
 
-      // 2.3 Moderación (soft por config del propio guard)
-      try {
-        await moderationGuard(caption);
-      } catch (e: any) {
-        if (!dryRun) {
-          skipped.push({
-            product_id: p.product_id,
-            reason: "MODERATION_BLOCKED",
-            detail: e?.message || String(e),
-          });
-          await logEvent("warn", "Moderation blocked", {
-            product_id: p.product_id,
-            err: e?.message,
-          });
-          continue;
-        }
-      }
+      // 2.3 Moderación (soft por config del propio guard)
+      try {
+        await moderationGuard(caption);
+      } catch (e: any) {
+        if (!dryRun) {
+          skipped.push({
+            product_id: p.product_id,
+            reason: "MODERATION_BLOCKED",
+            detail: e?.message || String(e),
+          });
+          await logEvent("warn", "Moderation blocked", {
+            product_id: p.product_id,
+            err: e?.message,
+          });
+          continue;
+        }
+      }
 
-      // 2.4 Hash (incluye redes)
-      const contentHash = hash(
-        `${p.product_id}|${p.image_url}|${caption}|${[...networks].sort().join("")}`
-      );
+      // 2.4 Hash (incluye redes)
+      const contentHash = hash(
+        `${p.product_id}|${p.image_url || ''}|${caption}|${[...networks].sort().join("")}` // <-- CORREGIDO
+      );
 
-      // 2.5 Idempotencia
-      if (!dryRun && !forcePublish && (await alreadyPublished(contentHash))) {
-        skipped.push({ product_id: p.product_id, reason: "IDEMPOTENT", detail: { hash: contentHash } });
-        await logEvent("info", "Idempotent skip", { product_id: p.product_id, hash: contentHash });
-        continue;
-      }
+      // 2.5 Idempotencia
+      if (!dryRun && !forcePublish && (await alreadyPublished(contentHash))) {
+        skipped.push({ product_id: p.product_id, reason: "IDEMPOTENT", detail: { hash: contentHash } });
+        await logEvent("info", "Idempotent skip", { product_id: p.product_id, hash: contentHash });
+        continue;
+      }
 
-      // 2.6 DryRun: solo plan
-      if (dryRun) {
-        results.push({
-          product_id: p.product_id,
-          image_url: p.image_url,
-          caption,
-          planned_networks: networks,
-        });
-        await logEvent("info", "Plan (dryRun)", { uid: (p as any).uid, product_id: p.product_id, networks });
-        continue;
-      }
+      // 2.6 DryRun: solo plan
+      if (dryRun) {
+        results.push({
+          product_id: p.product_id,
+          image_url: p.image_url || '', // <-- CORREGIDO
+          caption,
+          planned_networks: networks,
+        });
+        await logEvent("info", "Plan (dryRun)", { uid: (p as any).uid, product_id: p.product_id, networks });
+        continue;
+      }
 
-      // 2.7 Publicación real
-      let ig: any = null;
-      let fb: any = null;
+      // 2.7 Publicación real
+      let ig: any = null;
+      let fb: any = null;
 
-      try {
-        const imgUrl = normalizeMediaUrl(p.image_url);
+      try {
+        const imgUrl = normalizeMediaUrl(p.image_url || ''); // <-- CORREGIDO
 
-        if (networks.includes("instagram")) {
-          ig = await publishInstagram([imgUrl], caption);
-        }
-        if (networks.includes("facebook")) {
-          fb = await publishFacebook([imgUrl], caption);
-        }
-      } catch (e: any) {
-        skipped.push({ product_id: p.product_id, reason: "PUBLISH_FAILED", detail: e?.message || String(e) });
-        await logEvent("error", "Publish failed", { product_id: p.product_id, err: e?.message || String(e) });
-        continue;
-      }
+        if (networks.includes("instagram")) {
+          ig = await publishInstagram([imgUrl], caption);
+        }
+        if (networks.includes("facebook")) {
+          fb = await publishFacebook([imgUrl], caption);
+        }
+      } catch (e: any) {
+        skipped.push({ product_id: p.product_id, reason: "PUBLISH_FAILED", detail: e?.message || String(e) });
+        await logEvent("error", "Publish failed", { product_id: p.product_id, err: e?.message || String(e) });
+        continue;
+      }
 
-      // 2.8 Persistencia
-      await insertPostHistory({
-        product_id: p.product_id,
-        caption,
-        image_urls: [p.image_url],
-        ig_creation_id: ig?.creation_id ?? null,
-        ig_media_id: ig?.media_id ?? null,
-        fb_post_ids: fb?.post_ids ?? [],
-        campaign: p.campaign_name || campaign_name || "default",
-        published_at: new Date().toISOString(),
-        content_hash: contentHash,
-      });
+      // 2.8 Persistencia
+      await insertPostHistory({
+        product_id: p.product_id,
+        caption,
+        image_urls: [p.image_url || ''], // <-- CORREGIDO
+        ig_creation_id: ig?.creation_id ?? null,
+        ig_media_id: ig?.media_id ?? null,
+        fb_post_ids: fb?.post_ids ?? [],
+        campaign: p.campaign_name || campaign_name || "default",
+        published_at: new Date().toISOString(),
+        content_hash: contentHash,
+      });
 
-      results.push({
-        product_id: p.product_id,
-        image_url: p.image_url,
-        caption,
-        planned_networks: networks,
-        published: { ig, fb },
-      });
+      results.push({
+        product_id: p.product_id,
+        image_url: p.image_url || '', // <-- CORREGIDO
+        caption,
+        planned_networks: networks,
+        published: { ig, fb },
+      });
 
-      await logEvent("info", "Publicado IG/FB", {
-        uid: (p as any).uid,
-        product_id: p.product_id,
-        ig,
-        fb,
-        hash: contentHash,
-      });
-    } catch (e: any) {
-      skipped.push({ product_id: p.product_id, reason: "UNEXPECTED", detail: e?.message || String(e) });
-      await logEvent("error", e?.message || "item_failed", { stack: e?.stack, product_id: p.product_id });
-    }
-  }
+      await logEvent("info", "Publicado IG/FB", {
+        uid: (p as any).uid,
+        product_id: p.product_id,
+        ig,
+        fb,
+        hash: contentHash,
+      });
+    } catch (e: any) {
+      skipped.push({ product_id: p.product_id, reason: "UNEXPECTED", detail: e?.message || String(e) });
+      await logEvent("error", e?.message || "item_failed", { stack: e?.stack, product_id: p.product_id });
+    }
+  }
 
-  return debug ? { count: results.length, results, skipped } : { count: results.length, results };
+  return debug ? { count: results.length, results, skipped } : { count: results.length, results };
 }

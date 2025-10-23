@@ -33,7 +33,7 @@ Devuelve SOLO el texto final.`;
       ],
     });
 
-    const out = (rsp.output?.[0]?.content?.[0] as any)?.text ?? "";
+    const out = (rsp.output?.[0] as any)?.content?.[0]?.text ?? "";
     return out.trim() || base;
   } catch (err: any) {
     console.warn("RefineWithOpenAI error:", err?.message || err);
