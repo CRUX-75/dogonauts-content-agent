@@ -1,4 +1,3 @@
-// src/lib/log.ts
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 let supabase: SupabaseClient | null = null;
