@@ -1,34 +1,31 @@
-# ---- build stage ----
-FROM node:20-alpine AS build
-WORKDIR /app
+# Dockerfile (simple y funcional)
 
-# Instala dependencias
-COPY package*.json ./
-RUN npm ci
+# --- ROMPEDOR DE CACHÉ ---
+# Esta línea fuerza a Docker a no usar la caché anterior.
+ARG CACHE_BUSTER=20251024-1700
+# --- FIN ROMPEDOR DE CACHÉ ---
 
-# Copia el código fuente
-COPY . .
-
-# Compila TypeScript -> dist/
-RUN npm run build
-
-# ---- runtime stage ----
 FROM node:20-alpine
 WORKDIR /app
 
-ENV NODE_ENV=production
-
-# Copia sólo lo necesario para producción
+# Necesitamos devDependencies para compilar TypeScript
 COPY package*.json ./
-RUN npm ci --omit=dev
-COPY --from=build /app/dist ./dist
+RUN npm ci --include=dev
 
-# Asegura que el puerto 8080 quede expuesto
+# Copiamos el código y compilamos
+COPY . .
+RUN npm run build
+
+# Quitamos devDependencies para runtime liviano
+RUN npm prune --omit=dev
+
+# EasyPanel suele usar 3000
 EXPOSE 3000
 
-# Ejecuta el archivo de salida principal (dist/index.js)
-CMD ["node", "dist/index.js"]
-
-# al final del stage runtime
-ARG GIT_SHA=dev
+# Opcional: identificar el build (te ayuda con /version y a romper caché)
+ARG GIT_SHA=deploy-simple-1
 ENV GIT_SHA=$GIT_SHA
+ENV NODE_ENV=production
+
+# Arranque
+CMD ["node", "dist/index.js"]

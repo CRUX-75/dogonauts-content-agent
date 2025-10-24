@@ -6,7 +6,9 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.1",
+    "typescript": "^5.9.3"
   }
 }
-
-
