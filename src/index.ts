@@ -1,36 +1,85 @@
 // src/index.ts
-// ... (importaciones, app.use(express.json())) ...
+// Punto de entrada principal del agente Dogonauts.
+// Levanta el servidor Express y expone las rutas API del sistema.
 
+import express, { Request, Response } from "express";
+import dotenv from "dotenv";
+import { runBatch } from "./agent.js";
+import { collectMetricsOnce } from "./services/metrics.js";
+
+dotenv.config();
+
+const app = express();
+const port = process.env.PORT || 8080;
+
+// Middleware global
+app.use(express.json());
+
+// --- RUTA DE SALUD ---------------------------------------
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
     ok: true,
-    timestamp: new Date().toISOString(),
-    env_check: {
-      // Variables específicas que necesitamos
-      IG_ACCOUNT_ID_IS_SET: !!process.env.IG_ACCOUNT_ID,
-      IG_ACCOUNT_ID_LENGTH: process.env.IG_ACCOUNT_ID?.length || 0,
-      IG_ACCOUNT_ID_VALUE: process.env.IG_ACCOUNT_ID || "--- VACÍO ---",
-
-      META_TOKEN_IS_SET: !!process.env.META_ACCESS_TOKEN,
-      META_TOKEN_LENGTH: process.env.META_ACCESS_TOKEN?.length || 0,
-      META_TOKEN_VALUE: (process.env.META_ACCESS_TOKEN || "--- VACÍO ---").substring(0, 20) + "...", // Mostramos solo los primeros 20
-
-      // 🔍 BONUS: Ver TODAS las variables que contienen "META" o "IG" o "FACEBOOK"
-      all_related_env_keys: Object.keys(process.env).filter(
-        key => key.includes('META') || key.includes('IG') || key.includes('FACEBOOK')
-      ),
-
-      // 🔍 BONUS 2: Ver si hay espacios ocultos en los nombres
-      key_analysis: {
-        IG_key_exact: JSON.stringify('IG_ACCOUNT_ID'),
-        META_key_exact: JSON.stringify('META_ACCESS_TOKEN'),
-        IG_found_keys: Object.keys(process.env).filter(k => k.toLowerCase().includes('ig_account')),
-        META_found_keys: Object.keys(process.env).filter(k => k.toLowerCase().includes('meta_access')),
-      }
+    env: {
+      OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
+      SUPABASE_URL: !!process.env.SUPABASE_URL,
+      SUPABASE_SERVICE: !!process.env.SUPABASE_SERVICE_KEY || !!process.env.SUPABASE_SERVICE_ROLE,
+      META_ACCESS_TOKEN: !!process.env.META_ACCESS_TOKEN,
+      FB_PAGE_ID: !!process.env.FB_PAGE_ID,
+      IG_ACCOUNT_ID: !!process.env.IG_ACCOUNT_ID,
     },
   });
 });
+// ----------------------------------------------------------
 
-// ... (el resto de tus rutas, /run, /api/collect-metrics, etc.) ...
 
-// ... (app.listen) ...
+// --- RUTA /run --------------------------------------------
+// Ejecuta una tanda de publicación o simulación.
+// Ejemplo:
+// curl -s -X POST http://localhost:8080/run -H "content-type: application/json" \
+//   -d '{"dryRun":true,"limit":1,"networks":["instagram"],"debug":true}'
+app.post("/run", async (req: Request, res: Response) => {
+  try {
+    const opts = req.body || {};
+    const result = await runBatch(opts);
+    res.json({ ok: true, ...opts, ...result });
+  } catch (e: any) {
+    console.error("[/run] Error:", e);
+    res.status(500).json({ ok: false, error: e?.message || String(e) });
+  }
+});
+// ----------------------------------------------------------
+
+
+// --- RUTA /api/collect-metrics -----------------------------
+// Recolecta métricas de un post en Meta (Instagram o Facebook).
+// Ejemplo:
+// curl -s -X POST http://localhost:8080/api/collect-metrics \
+//   -H "content-type: application/json" \
+//   -d '[{"platform":"instagram","platform_media_id":"18073732028468497","post_history_id":"b71d5cc6-a1e5-4ce9-a5f5-0ccc6aac2c70"}]'
+app.post("/api/collect-metrics", async (req: Request, res: Response) => {
+  const items = Array.isArray(req.body) ? req.body : [];
+  const results: any[] = [];
+
+  for (const item of items) {
+    const { platform, platform_media_id, post_history_id } = item;
+    try {
+      const metrics = await collectMetricsOnce(platform, platform_media_id, post_history_id);
+      results.push({ ok: true, id: post_history_id, metrics });
+    } catch (e: any) {
+      console.error("[collect-metrics] Error:", e?.message);
+      results.push({ ok: false, id: post_history_id, error: e?.message });
+    }
+  }
+
+  res.json({ ok: true, count: results.length, results });
+});
+// ----------------------------------------------------------
+
+
+// --- SERVER LISTEN ----------------------------------------
+app.listen(port, () => {
+  console.log(`🚀 Dogonauts Agent API running at http://localhost:${port}`);
+});
+// ----------------------------------------------------------
+
+export default app;
