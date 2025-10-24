@@ -1,43 +1,34 @@
-# --- Etapa 1: "Build" (Construcción) ---
-# Usamos una imagen oficial de Node.js (LTS - Alpine es ligera)
-FROM node:18-alpine AS builder
-
-# Establecemos el directorio de trabajo
+# ---- build stage ----
+FROM node:20-alpine AS build
 WORKDIR /app
 
-# Copiamos package.json y package-lock.json para cachear las dependencias
+# Instala dependencias
 COPY package*.json ./
+RUN npm ci
 
-# Instalamos TODAS las dependencias (incluyendo devDependencies como 'typescript')
-RUN npm install
-
-# Copiamos el resto del código fuente (src/, tsconfig.json, etc.)
+# Copia el código fuente
 COPY . .
 
-# Ejecutamos el script de build para compilar TS -> JS en /app/dist
+# Compila TypeScript -> dist/
 RUN npm run build
 
-
-# --- Etapa 2: "Production" (Ejecución) ---
-# Empezamos desde una imagen limpia y ligera de Node
-FROM node:18-alpine
-
+# ---- runtime stage ----
+FROM node:20-alpine
 WORKDIR /app
 
-# Copiamos los package.json desde la etapa 'builder'
-COPY --from=builder /app/package*.json ./
+ENV NODE_ENV=production
 
-# Instalamos SOLAMENTE las dependencias de producción
-RUN npm install --omit=dev
+# Copia sólo lo necesario para producción
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY --from=build /app/dist ./dist
 
-# Copiamos la carpeta 'dist' compilada desde la etapa 'builder'
-COPY --from=builder /app/dist ./dist
-
-# Exponemos el puerto 3000 (el que usa tu app)
+# Asegura que el puerto 8080 quede expuesto
 EXPOSE 3000
 
-# Añadimos un usuario 'node' por seguridad (buena práctica)
-USER node
-
-# El comando final para arrancar la aplicación
+# Ejecuta el archivo de salida principal (dist/index.js)
 CMD ["node", "dist/index.js"]
+
+# al final del stage runtime
+ARG GIT_SHA=dev
+ENV GIT_SHA=$GIT_SHA
