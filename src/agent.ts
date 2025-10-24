@@ -1,4 +1,3 @@
-// src/agent.ts 
 import { getProductsToPost, type Product } from "./tools/catalog.supabase.js";
 import { publishInstagram, publishFacebook } from "./tools/meta.js";
 import { getSupabase, insertPostHistory, logEvent } from "./tools/supabase.js";
@@ -132,7 +131,7 @@ export async function runBatch({
       } catch (e: any) {
         if (!dryRun) {
           skipped.push({
-            product_id: p.product_id,
+            product_id: p.product_id || 'unknown', // <--- FIX
             reason: "MODERATION_BLOCKED",
             detail: e?.message || String(e),
           });
@@ -151,7 +150,7 @@ export async function runBatch({
 
       // 2.5 Idempotencia
       if (!dryRun && !forcePublish && (await alreadyPublished(contentHash))) {
-        skipped.push({ product_id: p.product_id, reason: "IDEMPOTENT", detail: { hash: contentHash } });
+        skipped.push({ product_id: p.product_id || 'unknown', reason: "IDEMPOTENT", detail: { hash: contentHash } }); // <--- FIX
         await logEvent("info", "Idempotent skip", { product_id: p.product_id, hash: contentHash });
         continue;
       }
@@ -159,7 +158,7 @@ export async function runBatch({
       // 2.6 DryRun: solo plan
       if (dryRun) {
         results.push({
-          product_id: p.product_id,
+          product_id: p.product_id || 'unknown', // <--- FIX
           image_url: p.image_url || '',
           caption,
           planned_networks: networks,
@@ -182,7 +181,7 @@ export async function runBatch({
           fb = await publishFacebook([imgUrl], caption);
         }
       } catch (e: any) {
-        skipped.push({ product_id: p.product_id, reason: "PUBLISH_FAILED", detail: e?.message || String(e) });
+        skipped.push({ product_id: p.product_id || 'unknown', reason: "PUBLISH_FAILED", detail: e?.message || String(e) }); // <--- FIX
         await logEvent("error", "Publish failed", { product_id: p.product_id, err: e?.message || String(e) });
         continue;
       }
@@ -201,7 +200,7 @@ export async function runBatch({
       });
 
       results.push({
-        product_id: p.product_id,
+        product_id: p.product_id || 'unknown', // <--- FIX
         image_url: p.image_url || '',
         caption,
         planned_networks: networks,
@@ -216,10 +215,11 @@ export async function runBatch({
         hash: contentHash,
       });
     } catch (e: any) {
-      skipped.push({ product_id: p.product_id, reason: "UNEXPECTED", detail: e?.message || String(e) });
+      skipped.push({ product_id: p.product_id || 'unknown', reason: "UNEXPECTED", detail: e?.message || String(e) }); // <--- FIX
       await logEvent("error", e?.message || "item_failed", { stack: e?.stack, product_id: p.product_id });
     }
   }
 
   return debug ? { count: results.length, results, skipped } : { count: results.length, results };
 }
+git add package.json package-lock.json
