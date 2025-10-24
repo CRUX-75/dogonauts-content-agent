@@ -1,8 +1,9 @@
 // src/tools/meta.ts
-// Nota: Node 18+ tiene fetch global. Si usas Node <18, instala e importa node-fetch.
+// Nota: Node 18+ tiene fetch global.
 // Este archivo es ESM; mantén los sufijos .js en imports relativos.
 
 import { isPaused, reportMetaResult } from "../services/circuit.js";
+import { log } from "../lib/log.js"; // <--- IMPORTANTE: Nuevo logger
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -11,16 +12,32 @@ const MAX_RETRIES = Number(process.env.MAX_RETRIES || 3);
 const RETRY_BASE_MS = Number(process.env.RETRY_BASE_MS || 300);
 const RETRY_MAX_MS = Number(process.env.RETRY_MAX_MS || 5000);
 
-// ---------- Backoff con jitter ----------
+// ---------- Backoff con jitter (Mejorado con logging) ----------
 async function withRetry<T>(
   fn: () => Promise<T>,
+  fnName: string, // <-- Nombre de la función para logs
   opts = {
     retries: MAX_RETRIES,
     baseMs: RETRY_BASE_MS,
     maxMs: RETRY_MAX_MS,
     jitter: true,
-    onRetry: (err: any, attempt: number, delay: number) =>
-      console.warn(`[Retry] attempt=${attempt} delay=${delay}ms err=${err?.message || String(err)}`),
+    // onRetry ahora es async y usa nuestro logger
+    onRetry: async (err: any, attempt: number, delay: number) => {
+      const msg = `[Retry] ${fnName} attempt=${attempt} delay=${delay}ms err=${
+        err?.message || String(err)
+      }`;
+      console.warn(msg); // Log de consola inmediato
+      await log(
+        "warn",
+        `[Retry] ${fnName} failed, retrying...`,
+        {
+          fnName,
+          attempt,
+          delay,
+        },
+        err
+      );
+    },
   }
 ): Promise<T> {
   let lastErr: any;
@@ -32,14 +49,15 @@ async function withRetry<T>(
       if (attempt === opts.retries) break;
       const exp = Math.min(opts.baseMs * 2 ** attempt, opts.maxMs);
       const delay = opts.jitter ? Math.round(exp * (0.5 + Math.random())) : exp;
-      opts.onRetry?.(err, attempt + 1, delay);
+      // Await al onRetry por si es async (como el nuestro)
+      await opts.onRetry?.(err, attempt + 1, delay);
       await sleep(delay);
     }
   }
   throw lastErr;
 }
 
-// ---------- Helpers Graph API ----------
+// ---------- Helpers Graph API (Mejorado con errores estructurados) ----------
 async function graphPost(path: string, body: any, token: string) {
   const url = new URL(`https://graph.facebook.com/v24.0${path}`);
   url.searchParams.set("access_token", token);
@@ -50,19 +68,36 @@ async function graphPost(path: string, body: any, token: string) {
     body: JSON.stringify(body),
   });
 
-  const json = await res.json().catch(() => ({}));
+  const json = await res.json().catch(() => ({})); // 'json' es el response.data
+
   if (!res.ok) {
+    // --- ESTA ES LA MAGIA ---
+    // Creamos un error que imita la estructura de AxiosError
+    // para que nuestro logger 'log.ts' lo parsee correctamente.
     const code = (json as any)?.error?.code ?? res.status;
+    const msg = (json as any)?.error?.message ?? `Graph API Error`;
+
     const err: any = new Error(
-      `Graph ${path} ${res.status} code=${code}: ${JSON.stringify(json)}`
+      `Graph ${path} ${res.status} code=${code}: ${msg}`
     );
     err.code = code;
+    // Esto es lo que 'log.ts' buscará en 'anyErr.response'
+    err.response = {
+      status: res.status,
+      statusText: res.statusText,
+      data: json, // El payload de error completo de Meta
+    };
+    // Esto es lo que 'log.ts' buscará en 'anyErr.config'
+    err.config = {
+      url: url.toString(),
+      method: "POST",
+    };
     throw err;
   }
   return json;
 }
 
-// ---------- Implementaciones "once" ----------
+// ---------- Implementaciones "once" (Sin cambios) ----------
 async function publishInstagramOnce(imageUrls: string[], caption: string) {
   const ig = process.env.IG_ACCOUNT_ID!;
   const token = process.env.META_ACCESS_TOKEN!;
@@ -90,8 +125,19 @@ async function publishFacebookOnce(imageUrls: string[], caption: string) {
   const token = process.env.META_ACCESS_TOKEN!;
   if (!page || !token) throw new Error("Missing FB_PAGE_ID or META_ACCESS_TOKEN");
 
+  // --- PRUEBA /feed ---
+  // Esta era la prueba pendiente del informe. Publica un texto simple.
+  // Si esto falla, el problema es el token/página. Si funciona, el problema es /photos.
+  if (process.env.FB_TEST_MODE === "FEED") {
+    console.warn("[FB_TEST_MODE=FEED] Intentando publicar en /feed");
+    const r = await graphPost(`/${page}/feed`, { message: `Test post: ${caption}` }, token);
+    return { post_ids: [r.id] };
+  }
+  // --- FIN PRUEBA /feed ---
+
   const ids: string[] = [];
   for (const url of imageUrls) {
+    // Publica en /photos como estaba previsto
     const r = await graphPost(`/${page}/photos`, { url, caption, published: true }, token);
     ids.push(r.post_id);
     await sleep(50);
@@ -99,27 +145,53 @@ async function publishFacebookOnce(imageUrls: string[], caption: string) {
   return { post_ids: ids };
 }
 
-// ---------- API pública con circuito (pausa) + retry ----------
+// ---------- API pública (Refactorizada con logging) ----------
 export async function publishInstagram(imageUrls: string[], caption: string) {
-  if (await isPaused("IG")) return { status: "SKIPPED_CIRCUIT_PAUSED" };
+  if (await isPaused("IG")) {
+    await log("info", "IG publish skipped (circuit paused)");
+    return { status: "SKIPPED_CIRCUIT_PAUSED" };
+  }
   try {
-    const out = await withRetry(() => publishInstagramOnce(imageUrls, caption));
+    const out = await withRetry(
+      () => publishInstagramOnce(imageUrls, caption),
+      "publishInstagramOnce" // Pasa el nombre para logs
+    );
     await reportMetaResult("IG", true);
+    await log("info", "IG publish success", { media_id: out.media_id, images: imageUrls.length });
     return out;
   } catch (e) {
     await reportMetaResult("IG", false);
-    throw e;
+    // Loguea el error antes de relanzarlo
+    await log("error", "IG publish failed", { images: imageUrls.length }, e);
+    throw e; // Relanza para que el llamador sepa que falló
   }
 }
 
 export async function publishFacebook(imageUrls: string[], caption: string) {
-  if (await isPaused("FB")) return { status: "SKIPPED_CIRCUIT_PAUSED" };
+  if (await isPaused("FB")) {
+    await log("info", "FB publish skipped (circuit paused)");
+    return { status: "SKIPPED_CIRCUIT_PAUSED" };
+  }
   try {
-    const out = await withRetry(() => publishFacebookOnce(imageUrls, caption));
+    const out = await withRetry(
+      () => publishFacebookOnce(imageUrls, caption),
+      "publishFacebookOnce" // Pasa el nombre para logs
+    );
     await reportMetaResult("FB", true);
+    await log("info", "FB publish success", { post_ids: out.post_ids, images: imageUrls.length });
     return out;
   } catch (e) {
     await reportMetaResult("FB", false);
-    throw e;
+    
+    // --- ¡¡LA SOLUCIÓN!! ---
+    // Aquí es donde logueamos el error de Facebook usando el nuevo logger.
+    // 'e' será el error estructurado de 'graphPost', y 'log.ts' lo saneará.
+    await log("error", "FB publish failed", { images: imageUrls.length }, e);
+    
+    // Como decidimos abandonar FB, no relanzamos el error para no detener
+    // el resto del agente. Simplemente devolvemos un estado de fallo.
+    // (Si prefieres que el agente falle, descomenta 'throw e;')
+    return { status: "FAILED", error: (e as Error).message };
+    // throw e; 
   }
 }

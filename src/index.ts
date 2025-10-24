@@ -6,6 +6,7 @@ import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import { runBatch } from "./agent.js";
 import { collectMetricsOnce } from "./services/metrics.js";
+import { log } from './lib/log.js'; // <--- IMPORTADO
 
 dotenv.config();
 
@@ -22,7 +23,7 @@ app.get("/health", (_req: Request, res: Response) => {
     env: {
       OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
       SUPABASE_URL: !!process.env.SUPABASE_URL,
-      SUPABASE_SERVICE: !!process.env.SUPABASE_SERVICE_KEY || !!process.env.SUPABASE_SERVICE_ROLE,
+      SUPABASE_SERVICE: !!process.env.SUPABASE_SERVICE_KEY || !!process.env.SUPABASE_SERVICE_ROLE_KEY,
       META_ACCESS_TOKEN: !!process.env.META_ACCESS_TOKEN,
       FB_PAGE_ID: !!process.env.FB_PAGE_ID,
       IG_ACCOUNT_ID: !!process.env.IG_ACCOUNT_ID,
@@ -40,9 +41,13 @@ app.get("/health", (_req: Request, res: Response) => {
 app.post("/run", async (req: Request, res: Response) => {
   try {
     const opts = req.body || {};
+    // Loguea el inicio de la ejecución
+    await log('info', 'Batch run started', { ...opts, trigger: 'api' });
     const result = await runBatch(opts);
     res.json({ ok: true, ...opts, ...result });
   } catch (e: any) {
+    // Loguea el error antes de responder
+    await log('error', 'Batch run failed', { trigger: 'api' }, e);
     console.error("[/run] Error:", e);
     res.status(500).json({ ok: false, error: e?.message || String(e) });
   }
@@ -59,6 +64,7 @@ app.post("/run", async (req: Request, res: Response) => {
 app.post("/api/collect-metrics", async (req: Request, res: Response) => {
   const items = Array.isArray(req.body) ? req.body : [];
   const results: any[] = [];
+  await log('info', 'Metrics collection started', { count: items.length, trigger: 'api' });
 
   for (const item of items) {
     const { platform, platform_media_id, post_history_id } = item;
@@ -67,6 +73,8 @@ app.post("/api/collect-metrics", async (req: Request, res: Response) => {
       results.push({ ok: true, id: post_history_id, metrics });
     } catch (e: any) {
       console.error("[collect-metrics] Error:", e?.message);
+      // Loguea errores individuales
+      await log('error', 'Metrics collection failed for item', { post_history_id, platform }, e);
       results.push({ ok: false, id: post_history_id, error: e?.message });
     }
   }
@@ -77,8 +85,17 @@ app.post("/api/collect-metrics", async (req: Request, res: Response) => {
 
 
 // --- SERVER LISTEN ----------------------------------------
-app.listen(port, () => {
+// Convertido en async para permitir el log de arranque
+app.listen(port, async () => {
   console.log(`🚀 Dogonauts Agent API running at http://localhost:${port}`);
+  
+  // --- SMOKE TEST LOG ---
+  // Confirma que el logging a Supabase está funcional al arrancar.
+  await log('info', 'Dogonauts Agent started up', { 
+    env: process.env.NODE_ENV || 'development',
+    port: port,
+  });
+  // ----------------------
 });
 // ----------------------------------------------------------
 
