@@ -20,7 +20,7 @@ export async function logEvent(level: 'info' | 'warn' | 'error', message: string
   }
 }
 
-// --- NUEVAS FUNCIONES DE ESTADO ---
+// --- FUNCIONES DE ESTADO DE PUBLICACIÓN (FASE 1) ---
 
 /**
  * 1. Crea el post en estado PENDING y devuelve su ID.
@@ -37,15 +37,15 @@ export async function createPendingPost(payload: {
   const { data, error } = await supabase
     .from("post_history")
     .insert({
-      status: "PENDING", // <-- ¡NUEVO!
+      status: "PENDING",
       product_id: payload.product_id,
       caption: payload.caption,
       image_urls: payload.image_urls,
       campaign: payload.campaign,
       content_hash: payload.content_hash,
-      networks: payload.networks, // <-- ¡NUEVO!
+      networks: payload.networks,
     })
-    .select("id") // <-- Pedimos que nos devuelva el ID
+    .select("id")
     .single();
 
   if (error) {
@@ -68,7 +68,7 @@ export async function updatePostToPublished(
   const { error } = await supabase
     .from("post_history")
     .update({
-      status: "PUBLISHED", // <-- ¡NUEVO!
+      status: "PUBLISHED",
       published_at: new Date().toISOString(),
       ig_media_id: payload.ig_media_id,
       fb_post_ids: payload.fb_post_ids,
@@ -77,8 +77,6 @@ export async function updatePostToPublished(
     .eq("id", postId);
 
   if (error) {
-    // ESTO ES UN ERROR CRÍTICO: Se publicó pero no se pudo guardar.
-    // Lanza un error para que el logEvent lo capture.
     throw new Error(
       `CRITICAL: Post ${postId} published but FAILED TO UPDATE status: ${error.message}`
     );
@@ -94,7 +92,7 @@ export async function updatePostToFailed(postId: string, errorMessage: string) {
   const { error } = await supabase
     .from("post_history")
     .update({
-      status: "FAILED", // <-- ¡NUEVO!
+      status: "FAILED",
       error_message: errorMessage,
     })
     .eq("id", postId);
@@ -104,4 +102,49 @@ export async function updatePostToFailed(postId: string, errorMessage: string) {
       `Failed to update post ${postId} to FAILED: ${error.message}`
     );
   }
+}
+
+// --- FUNCIÓN DE RECOLECCIÓN DE MÉTRICAS (FASE 3 - SPRINT 2) ---
+
+/**
+ * Obtiene posts PUBLICADOS que necesitan recolección de métricas.
+ * Esta función es llamada por el endpoint /api/posts-to-collect.
+ */
+export async function getPostsToCollectMetrics() {
+    const supabase = getSupabase();
+    
+    // Calcula la fecha de hace 24 horas. Los posts nuevos necesitan un día para tener métricas relevantes.
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    
+    // Consulta SQL para obtener posts de Instagram que:
+    // 1. Están PUBLISHED.
+    // 2. Tienen un ID de Media de Instagram (ig_media_id no es nulo).
+    // 3. Su última métrica recogida (en post_metrics) es de hace más de 24h, O nunca se ha recogido.
+    
+    // NOTA: El OR() y el JOIN implícito son complejos en Supabase. 
+    // Usamos una consulta simple y filtramos en la aplicación si es necesario.
+    
+    const { data: posts, error } = await supabase
+        .from('post_history')
+        .select(`
+            id, 
+            platform_media_id,
+            fb_post_ids,
+            latest_metric:post_metrics!left(captured_at)
+        `)
+        .eq('status', 'PUBLISHED')
+        .not('platform_media_id', 'is', null) // Solo posts de IG que tienen ID
+        .or(`latest_metric.captured_at.lt.${oneDayAgo},latest_metric.captured_at.is.null`)
+        .limit(20); 
+
+    if (error) {
+        throw new Error(`Failed to fetch posts for metrics collection: ${error.message}`);
+    }
+    
+    // Mapeamos los resultados para que n8n reciba solo la información necesaria
+    return posts.map(p => ({
+        post_history_id: p.id,
+        platform: p.platform_media_id ? 'instagram' : 'facebook',
+        platform_media_id: p.platform_media_id || p.fb_post_ids?.[0], // Usamos el ID de IG o el primero de FB
+    })).filter(p => p.platform_media_id);
 }
