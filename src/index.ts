@@ -6,7 +6,6 @@ import dotenv from "dotenv";
 import { log } from "./lib/log.js"; // Asegúrate que la ruta sea correcta
 import { runBatch } from "./agent.js";
 import { collectMetricsOnce } from "./services/metrics.js";
-import OpenAI from 'openai'; // <--- ¡IMPORT AÑADIDO!
 
 dotenv.config();
 
@@ -14,7 +13,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 app.use(express.json());
 
-// --- (Tus rutas de /health se quedan igual) ---
+// --- RUTAS DE SALUD -------------------
 const healthCheck = (_req: Request, res: Response) => {
   const env = {
     OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
@@ -34,13 +33,14 @@ const healthCheck = (_req: Request, res: Response) => {
     env,
   });
 };
+
 app.get("/", healthCheck);
 app.get("/health", healthCheck);
 app.get("/healthz", healthCheck);
 // ----------------------------------------------------------
 
 
-// --- (Tu ruta /run se queda igual) ---
+// --- RUTA /run --------------------------------------------
 app.post("/run", async (req: Request, res: Response) => {
   await log("info", "/run triggered", { body: req.body });
   try {
@@ -56,7 +56,7 @@ app.post("/run", async (req: Request, res: Response) => {
 // ----------------------------------------------------------
 
 
-// --- (Tu ruta /api/collect-metrics se queda igual) ---
+// --- RUTA /api/collect-metrics -----------------------------
 app.post("/api/collect-metrics", async (req: Request, res: Response) => {
   const items = Array.isArray(req.body) ? req.body : [];
   const results: any[] = [];
@@ -83,48 +83,7 @@ app.post("/api/collect-metrics", async (req: Request, res: Response) => {
 // ----------------------------------------------------------
 
 
-// --- INICIO DE MEJORA DE DIAGNÓSTICO (Fase 2) ---
-// Endpoint de prueba de OpenAI
-app.get('/debug-openai', async (req: Request, res: Response) => {
-  // Creamos una instancia solo para este test
-  const debugOpenai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  
-  try {
-    console.log('🧪 Test de OpenAI (/debug-openai) iniciado');
-    console.log('API Key presente:', !!process.env.OPENAI_API_KEY);
-    console.log('API Key (primeros 10 chars):', process.env.OPENAI_API_KEY?.substring(0, 10));
-
-    const completion = await debugOpenai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        { role: "user", content: "Di solamente: FUNCIONO" }
-      ],
-      max_tokens: 10
-    });
-    const response = completion.choices[0]?.message?.content;
-    console.log('✅ OpenAI respondió:', response);
-
-    res.json({
-      success: true,
-      apiKeyPresent: !!process.env.OPENAI_API_KEY,
-      apiKeyPrefix: process.env.OPENAI_API_KEY?.substring(0, 10),
-      openaiResponse: response,
-      model: "gpt-3.5-turbo"
-    });
-      
-  } catch (error: any) {
-    console.error('❌ Error en test OpenAI (/debug-openai):', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      errorDetails: JSON.stringify(error, null, 2)
-    });
-  }
-});
-// --- FIN DE MEJORA ---
-
-
-// --- (Tu 'app.listen' se queda igual) ---
+// --- SERVER LISTEN ----------------------------------------
 app.listen(port, async () => {
   try {
     await log("info", "Dogonauts Agent started up", {

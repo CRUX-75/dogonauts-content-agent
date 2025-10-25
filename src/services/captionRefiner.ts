@@ -113,25 +113,20 @@ When you receive a product description or request, output ONLY the final German 
 The post should be 120-180 words (optimal for Instagram engagement) and feel effortless to read while being strategically crafted to convert browsers into buyers.
 
 Remember: Your job is to make people STOP scrolling, FEEL something, and WANT to learn more about dogonauts.de. Every single word must earn its place.
-`; // <-- Aquí estaba el error de cierre, ya está corregido.
+`;
 
 /**
  * Esta función recibe un caption básico y usa la IA para
  * refinarlo según las reglas del SYSTEM_PROMPT.
  */
 export async function refineWithOpenAI(baseCaption: string): Promise<string> {
-  // Si no hay API Key, devolvemos el texto base (esto se queda)
+  // Si no hay API Key, devolvemos el texto base
   if (!process.env.OPENAI_API_KEY) {
     console.warn('⚠️ refineWithOpenAI saltado: No hay OPENAI_API_KEY');
     return baseCaption;
   }
 
   try {
-    // --- INICIO DE MEJORA DE DIAGNÓSTICO ---
-    console.log('🔍 refineWithOpenAI INICIADO');
-    console.log('📝 baseCaption recibido:', baseCaption.substring(0, 100));
-    // --- FIN DE MEJORA ---
-
     const response = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [
@@ -141,14 +136,11 @@ export async function refineWithOpenAI(baseCaption: string): Promise<string> {
         },
         {
           role: "user",
-          // --- MEJORA DE DIAGNÓSTICO ---
-          // Simplificamos el user prompt al mínimo.
           content: `TEXTO BASE A MEJORAR:\n"${baseCaption}"`
-          // --- FIN DE MEJORA ---
         },
       ],
       temperature: 0.7,
-      max_tokens: 500, // Aumentado como en la estrategia
+      max_tokens: 500,
     });
 
     const refinedCaption = response.choices[0]?.message?.content;
@@ -157,24 +149,14 @@ export async function refineWithOpenAI(baseCaption: string): Promise<string> {
       throw new Error("Respuesta vacía de OpenAI al refinar el caption");
     }
     
-    // --- INICIO DE MEJORA DE DIAGNÓSTICO ---
-    console.log('✅ refineWithOpenAI ÉXITO:', refinedCaption.substring(0, 100));
-    // --- FIN DE MEJORA ---
-    
     return refinedCaption.trim();
 
   } catch (error: any) {
-    // --- INICIO DE MEJORA DE DIAGNÓSTICO (LOGGING AGRESIVO) ---
-    console.error('❌ ============ ERROR EN refineWithOpenAI ============');
-    console.error('Error completo:', JSON.stringify(error, null, 2));
-    console.error('Error.message:', error?.message);
-    console.error('Error.name:', error?.name);
-    console.error('Error.status (código HTTP):', error?.status);
-    console.error('Error.headers:', JSON.stringify(error?.headers, null, 2));
-    console.error('===================================================');
-        
-    // Devolvemos el error en el caption para verlo en n8n
-    return `[ERROR CAPTURADO: ${error?.message || 'Unknown'}] ${baseCaption}`;
-    // --- FIN DE MEJORA ---
+    // --- CÓDIGO DE LIMPIEZA ---
+    // Si OpenAI falla, logueamos el error y devolvemos el texto base
+    // para no romper el flujo de publicación.
+    console.error("Error en refineWithOpenAI:", error?.message || "Error desconocido");
+    return baseCaption;
+    // --- FIN DE LIMPIEZA ---
   }
 }
