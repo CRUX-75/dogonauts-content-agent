@@ -12,7 +12,7 @@ export function getSupabase() {
 }
 
 // (Asumo que esta función ya la tenías)
-export async function logEvent(level, message, meta = {}) {
+export async function logEvent(level: 'info' | 'warn' | 'error', message: string, meta: any = {}) {
   const supabase = getSupabase();
   const { error } = await supabase.from("logs").insert({ level, message, meta });
   if (error) {

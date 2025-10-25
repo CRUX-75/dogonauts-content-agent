@@ -184,7 +184,7 @@ export async function runBatch({
 
       // 2.7.A: Crear registro PENDING en BBDD
       const pendingPost = await createPendingPost({
-        product_id: p.product_id,
+        product_id: p.product_id || 'unknown',
         caption,
         image_urls: [p.image_url || ''],
         campaign: p.campaign_name || campaign_name || "default",
@@ -209,7 +209,7 @@ export async function runBatch({
       }
 
       // 2.8: Actualizar a PUBLISHED
-      await updatePostToPublished(postId, {
+      await updatePostToPublished(postId!, {
         ig_media_id: ig?.media_id ?? ig?.platform_media_id ?? null, // (Cubre ambos nombres de propiedad)
         fb_post_ids: fb?.post_ids ?? [],
       });
