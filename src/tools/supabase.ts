@@ -1,6 +1,16 @@
 // src/tools/supabase.ts
 import { createClient } from "@supabase/supabase-js";
 
+// --- INTERFAZ AÑADIDA PARA SOLUCIONAR EL ERROR TS2339 ---
+interface PostHistoryWithMetrics {
+    id: string;
+    ig_media_id: string | null;
+    fb_post_ids: string[] | null;
+    // Esto es lo que TypeScript no podía inferir automáticamente
+    latest_metric: { captured_at: string }[] | null; 
+}
+// --------------------------------------------------------
+
 // (Asumo que esta función ya la tenías)
 export function getSupabase() {
     const supabaseUrl = process.env.SUPABASE_URL;
@@ -117,28 +127,36 @@ export async function getPostsToCollectMetrics() {
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     // Consulta simple: solo los PUBLISHED con ID de Instagram.
-    const { data: posts, error } = await supabase
+    const { data, error } = await supabase
         .from('post_history')
         .select(`
             id,
-            ig_media_id, // <--- CORREGIDO: Usamos la columna real 'ig_media_id'
+            ig_media_id, // CORREGIDO: Usamos la columna real 'ig_media_id'
             fb_post_ids,
             latest_metric:post_metrics!left(captured_at)
         `)
         .eq('status', 'PUBLISHED')
-        .not('ig_media_id', 'is', null) // <--- CORREGIDO: Filtramos por 'ig_media_id'
+        .not('ig_media_id', 'is', null) // CORREGIDO: Filtramos por 'ig_media_id'
         .limit(50); 
+    
+    // --- COERCIÓN DE TIPO (ASIGNACIÓN FORZADA) ---
+    const posts = data as PostHistoryWithMetrics[] | null; 
 
     if (error) {
         throw new Error(`Failed to fetch posts for metrics collection: ${error.message}`);
     }
+    
+    // Si no hay posts o la consulta fue vacía
+    if (!posts) {
+        return [];
+    }
 
     // --- FILTRADO EN EL CLIENTE (Aplica la lógica OR de manera segura) ---
     const postsToCollect = posts.filter(p => {
-        // La consulta de Supabase devuelve un array de 0 o 1 elemento para la relación LEFT JOIN
-        const latestMetricDate = p.latest_metric?.[0]?.captured_at;
+        // Accedemos a la propiedad con seguridad, gracias al tipado forzado
+        const latestMetricDate = p.latest_metric?.[0]?.captured_at; 
 
-        // Condición 1: Nunca se ha recogido (latest_metric es null o un array vacío)
+        // Condición 1: Nunca se ha recogido
         if (!latestMetricDate) {
             return true;
         }
@@ -152,8 +170,8 @@ export async function getPostsToCollectMetrics() {
     // Mapeamos los resultados para que n8n reciba solo la información necesaria
     return postsToCollect.map(p => ({
         post_history_id: p.id,
-        // Usamos ig_media_id para determinar la plataforma, ya que filtramos solo por IG.
+        // Usamos ig_media_id para determinar la plataforma
         platform: p.ig_media_id ? 'instagram' : 'facebook', 
-        platform_media_id: p.ig_media_id || p.fb_post_ids?.[0], // Enviamos el ID real al trabajador
+        platform_media_id: p.ig_media_id || p.fb_post_ids?.[0], 
     })).filter(p => p.platform_media_id);
 }
