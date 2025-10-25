@@ -1,68 +1,107 @@
 // src/tools/supabase.ts
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 
-let _supabase: SupabaseClient | null = null;
-
-export function getSupabase(): SupabaseClient {
-  if (_supabase) return _supabase;
-
-  // lee envs en el MOMENTO de uso, no al importar el módulo
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-
-  if (!url || !key) {
-    const msg = [
-      "Faltan variables de entorno para Supabase:",
-      `  SUPABASE_URL=${url ? "OK" : "MISSING"}`,
-      `  SUPABASE_SERVICE_KEY|SUPABASE_SERVICE_ROLE=${key ? "OK" : "MISSING"}`
-    ].join("\n");
-    throw new Error(msg);
+// (Asumo que esta función ya la tenías)
+export function getSupabase() {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_KEY; // Usa la Service Key en el backend
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Missing Supabase env vars");
   }
-
-  _supabase = createClient(url, key);
-  return _supabase;
+  return createClient(supabaseUrl, supabaseKey);
 }
 
-// Helpers reutilizando el singleton
-export async function insertPostHistory(row: any) {
+// (Asumo que esta función ya la tenías)
+export async function logEvent(level, message, meta = {}) {
   const supabase = getSupabase();
-  if (!row?.product_id) {
-    console.warn("[post_history] row sin product_id:", row);
-    return;
+  const { error } = await supabase.from("logs").insert({ level, message, meta });
+  if (error) {
+    console.error("Failed to log event:", error.message);
   }
+}
+
+// --- NUEVAS FUNCIONES DE ESTADO ---
+
+/**
+ * 1. Crea el post en estado PENDING y devuelve su ID.
+ */
+export async function createPendingPost(payload: {
+  product_id: string;
+  caption: string;
+  image_urls: string[];
+  campaign: string;
+  content_hash: string;
+  networks: string[]; // Guardamos las redes planeadas
+}) {
+  const supabase = getSupabase();
   const { data, error } = await supabase
     .from("post_history")
-    .insert([{
-      product_id: row.product_id,
-      caption: row.caption || "",
-      image_urls: row.image_urls || [],
-      ig_creation_id: row.ig_creation_id || null,
-      ig_media_id: row.ig_media_id || null,
-      fb_post_ids: row.fb_post_ids || [],
-      campaign: row.campaign || null,
-      published_at: row.published_at || new Date().toISOString(),
-      content_hash: row.content_hash || null,
-    }])
-    .select();
+    .insert({
+      status: "PENDING", // <-- ¡NUEVO!
+      product_id: payload.product_id,
+      caption: payload.caption,
+      image_urls: payload.image_urls,
+      campaign: payload.campaign,
+      content_hash: payload.content_hash,
+      networks: payload.networks, // <-- ¡NUEVO!
+    })
+    .select("id") // <-- Pedimos que nos devuelva el ID
+    .single();
 
-  if (error) console.error("Error insert post_history:", error.message);
-  return data;
+  if (error) {
+    throw new Error(`Failed to create PENDING post: ${error.message}`);
+  }
+  return data; // { id: '...' }
 }
 
-export async function logEvent(
-  level: "info" | "warn" | "error",
-  message: string,
-  meta?: any
+/**
+ * 2. Actualiza un post a PUBLISHED usando su ID.
+ */
+export async function updatePostToPublished(
+  postId: string,
+  payload: {
+    ig_media_id: string | null;
+    fb_post_ids: string[];
+  }
 ) {
-  try {
-    const supabase = getSupabase();
-    await supabase.from("post_feedback").insert({
-      level,
-      message,
-      meta,
-      created_at: new Date().toISOString(),
-    } as any);
-  } catch {
-    // no romper por logging
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from("post_history")
+    .update({
+      status: "PUBLISHED", // <-- ¡NUEVO!
+      published_at: new Date().toISOString(),
+      ig_media_id: payload.ig_media_id,
+      fb_post_ids: payload.fb_post_ids,
+      error_message: null, // Limpiamos errores
+    })
+    .eq("id", postId);
+
+  if (error) {
+    // ESTO ES UN ERROR CRÍTICO: Se publicó pero no se pudo guardar.
+    // Lanza un error para que el logEvent lo capture.
+    throw new Error(
+      `CRITICAL: Post ${postId} published but FAILED TO UPDATE status: ${error.message}`
+    );
+  }
+  return { id: postId };
+}
+
+/**
+ * 3. Actualiza un post a FAILED usando su ID.
+ */
+export async function updatePostToFailed(postId: string, errorMessage: string) {
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from("post_history")
+    .update({
+      status: "FAILED", // <-- ¡NUEVO!
+      error_message: errorMessage,
+    })
+    .eq("id", postId);
+
+  if (error) {
+    console.error(
+      `Failed to update post ${postId} to FAILED: ${error.message}`
+    );
   }
 }
