@@ -4,27 +4,21 @@
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import { log } from "./lib/log.js"; // Asegúrate que la ruta sea correcta
-// ASUMIMOS que tus rutas de API están en 'agent.ts' y 'services/metrics.ts'
 import { runBatch } from "./agent.js";
 import { collectMetricsOnce } from "./services/metrics.js";
+import OpenAI from 'openai'; // <--- ¡IMPORT AÑADIDO!
 
 dotenv.config();
 
 const app = express();
-// EasyPanel inyecta PORT como variable de entorno en el contenedor
-const port = process.env.PORT || 3000; // Usamos 3000 como fallback
-
-// Middleware global
+const port = process.env.PORT || 3000;
 app.use(express.json());
 
-// --- RUTAS DE SALUD (A PRUEBA DE BALAS) -------------------
-// EasyPanel puede buscar en '/', '/health' o '/healthz'
-// Le damos las tres.
+// --- (Tus rutas de /health se quedan igual) ---
 const healthCheck = (_req: Request, res: Response) => {
   const env = {
     OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
     SUPABASE_URL: !!process.env.SUPABASE_URL,
-    // Comprueba ambas claves de servicio
     SUPABASE_SERVICE:
       !!process.env.SUPABASE_SERVICE_KEY ||
       !!process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -33,24 +27,20 @@ const healthCheck = (_req: Request, res: Response) => {
     FB_PAGE_ID: !!process.env.FB_PAGE_ID,
     IG_ACCOUNT_ID: !!process.env.IG_ACCOUNT_ID,
   };
-  
-  // Si falta una variable crítica, podemos reportarlo aquí
   const ok = env.SUPABASE_URL && env.SUPABASE_SERVICE && env.META_ACCESS_TOKEN;
-  
   res.status(ok ? 200 : 503).json({
     ok,
     message: ok ? "Service healthy" : "Service unhealthy (missing critical env vars)",
     env,
   });
 };
-
 app.get("/", healthCheck);
 app.get("/health", healthCheck);
 app.get("/healthz", healthCheck);
 // ----------------------------------------------------------
 
 
-// --- RUTA /run --------------------------------------------
+// --- (Tu ruta /run se queda igual) ---
 app.post("/run", async (req: Request, res: Response) => {
   await log("info", "/run triggered", { body: req.body });
   try {
@@ -59,7 +49,6 @@ app.post("/run", async (req: Request, res: Response) => {
     res.json({ ok: true, ...opts, ...result });
   } catch (e: any) {
     console.error("[/run] Error:", e);
-    // Loguea el error antes de responder
     await log("error", "/run failed", { body: req.body }, e);
     res.status(500).json({ ok: false, error: e?.message || String(e) });
   }
@@ -67,7 +56,7 @@ app.post("/run", async (req: Request, res: Response) => {
 // ----------------------------------------------------------
 
 
-// --- RUTA /api/collect-metrics -----------------------------
+// --- (Tu ruta /api/collect-metrics se queda igual) ---
 app.post("/api/collect-metrics", async (req: Request, res: Response) => {
   const items = Array.isArray(req.body) ? req.body : [];
   const results: any[] = [];
@@ -94,11 +83,49 @@ app.post("/api/collect-metrics", async (req: Request, res: Response) => {
 // ----------------------------------------------------------
 
 
-// --- SERVER LISTEN ----------------------------------------
-// Escucha en 0.0.0.0 para aceptar conexiones del contenedor
+// --- INICIO DE MEJORA DE DIAGNÓSTICO (Fase 2) ---
+// Endpoint de prueba de OpenAI
+app.get('/debug-openai', async (req: Request, res: Response) => {
+  // Creamos una instancia solo para este test
+  const debugOpenai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  
+  try {
+    console.log('🧪 Test de OpenAI (/debug-openai) iniciado');
+    console.log('API Key presente:', !!process.env.OPENAI_API_KEY);
+    console.log('API Key (primeros 10 chars):', process.env.OPENAI_API_KEY?.substring(0, 10));
+
+    const completion = await debugOpenai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "user", content: "Di solamente: FUNCIONO" }
+      ],
+      max_tokens: 10
+    });
+    const response = completion.choices[0]?.message?.content;
+    console.log('✅ OpenAI respondió:', response);
+
+    res.json({
+      success: true,
+      apiKeyPresent: !!process.env.OPENAI_API_KEY,
+      apiKeyPrefix: process.env.OPENAI_API_KEY?.substring(0, 10),
+      openaiResponse: response,
+      model: "gpt-3.5-turbo"
+    });
+      
+  } catch (error: any) {
+    console.error('❌ Error en test OpenAI (/debug-openai):', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      errorDetails: JSON.stringify(error, null, 2)
+    });
+  }
+});
+// --- FIN DE MEJORA ---
+
+
+// --- (Tu 'app.listen' se queda igual) ---
 app.listen(port, async () => {
-  // Este es el "smoke test". Si la clave de Supabase es incorrecta,
-  // esto fallará y el error se verá en los logs de EasyPanel.
   try {
     await log("info", "Dogonauts Agent started up", {
       env: process.env.NODE_ENV,
@@ -107,11 +134,8 @@ app.listen(port, async () => {
   } catch (e) {
     console.error("[CRITICAL] Logger failed on startup", e);
   }
-  
-  // Este es el log que EasyPanel busca para saber que la app está "viva"
   console.log(`🚀 Dogonauts Agent API running at http://0.0.0.0:${port}`);
 });
 // ----------------------------------------------------------
 
 export default app;
-
