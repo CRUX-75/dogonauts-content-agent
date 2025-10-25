@@ -6,6 +6,7 @@ interface PostHistoryWithMetrics {
     id: string;
     ig_media_id: string | null;
     fb_post_ids: string[] | null;
+    // Forzamos el nombre de la relación y el campo
     latest_metric: { captured_at: string }[] | null; 
 }
 // --------------------------------------------------------
@@ -132,8 +133,8 @@ export async function getPostsToCollectMetrics() {
             id,
             ig_media_id, 
             fb_post_ids,
-            latest_metric:post_metrics!left(captured_at)
-        `) // <--- Comentarios eliminados de aquí
+            latest_metric:post_metrics!post_history_id_fkey!left(captured_at)
+        `) // <-- CORRECCIÓN: Se especifica la clave foránea para resolver ambigüedad
         .eq('status', 'PUBLISHED')
         .not('ig_media_id', 'is', null) 
         .limit(50); 
@@ -142,7 +143,6 @@ export async function getPostsToCollectMetrics() {
     const posts = data as PostHistoryWithMetrics[] | null; 
 
     if (error) {
-        // Devuelve el error de la BD si lo hay
         throw new Error(`Failed to fetch posts for metrics collection: ${error.message}`);
     }
     
