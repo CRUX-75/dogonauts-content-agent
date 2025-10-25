@@ -116,19 +116,18 @@ export async function getPostsToCollectMetrics() {
     // Calcula la fecha de hace 24 horas.
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    // Consulta simple: solo los PUBLISHED con ID de plataforma.
+    // Consulta simple: solo los PUBLISHED con ID de Instagram.
     const { data: posts, error } = await supabase
         .from('post_history')
         .select(`
             id,
-            platform_media_id,
+            ig_media_id, // <--- CORREGIDO: Usamos la columna real 'ig_media_id'
             fb_post_ids,
             latest_metric:post_metrics!left(captured_at)
         `)
         .eq('status', 'PUBLISHED')
-        .not('platform_media_id', 'is', null) // Solo posts de IG que tienen ID
-        // .or(`latest_metric.captured_at.lt.${oneDayAgo},latest_metric.captured_at.is.null`) <--- ELIMINADO
-        .limit(50); // Aumenté el límite solo para asegurarnos de traer todos los que sean necesarios para el filtro en el cliente.
+        .not('ig_media_id', 'is', null) // <--- CORREGIDO: Filtramos por 'ig_media_id'
+        .limit(50); 
 
     if (error) {
         throw new Error(`Failed to fetch posts for metrics collection: ${error.message}`);
@@ -153,7 +152,8 @@ export async function getPostsToCollectMetrics() {
     // Mapeamos los resultados para que n8n reciba solo la información necesaria
     return postsToCollect.map(p => ({
         post_history_id: p.id,
-        platform: p.platform_media_id ? 'instagram' : 'facebook',
-        platform_media_id: p.platform_media_id || p.fb_post_ids?.[0], // Usamos el ID de IG o el primero de FB
+        // Usamos ig_media_id para determinar la plataforma, ya que filtramos solo por IG.
+        platform: p.ig_media_id ? 'instagram' : 'facebook', 
+        platform_media_id: p.ig_media_id || p.fb_post_ids?.[0], // Enviamos el ID real al trabajador
     })).filter(p => p.platform_media_id);
 }
