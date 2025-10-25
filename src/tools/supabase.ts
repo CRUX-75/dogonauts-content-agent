@@ -6,7 +6,6 @@ interface PostHistoryWithMetrics {
     id: string;
     ig_media_id: string | null;
     fb_post_ids: string[] | null;
-    // Esto es lo que TypeScript no podía inferir automáticamente
     latest_metric: { captured_at: string }[] | null; 
 }
 // --------------------------------------------------------
@@ -131,18 +130,19 @@ export async function getPostsToCollectMetrics() {
         .from('post_history')
         .select(`
             id,
-            ig_media_id, // CORREGIDO: Usamos la columna real 'ig_media_id'
+            ig_media_id, 
             fb_post_ids,
             latest_metric:post_metrics!left(captured_at)
-        `)
+        `) // <--- Comentarios eliminados de aquí
         .eq('status', 'PUBLISHED')
-        .not('ig_media_id', 'is', null) // CORREGIDO: Filtramos por 'ig_media_id'
+        .not('ig_media_id', 'is', null) 
         .limit(50); 
     
     // --- COERCIÓN DE TIPO (ASIGNACIÓN FORZADA) ---
     const posts = data as PostHistoryWithMetrics[] | null; 
 
     if (error) {
+        // Devuelve el error de la BD si lo hay
         throw new Error(`Failed to fetch posts for metrics collection: ${error.message}`);
     }
     
@@ -151,9 +151,8 @@ export async function getPostsToCollectMetrics() {
         return [];
     }
 
-    // --- FILTRADO EN EL CLIENTE (Aplica la lógica OR de manera segura) ---
+    // --- FILTRADO EN EL CLIENTE (Lógica de "más de 24h o nunca recogido") ---
     const postsToCollect = posts.filter(p => {
-        // Accedemos a la propiedad con seguridad, gracias al tipado forzado
         const latestMetricDate = p.latest_metric?.[0]?.captured_at; 
 
         // Condición 1: Nunca se ha recogido
@@ -170,7 +169,6 @@ export async function getPostsToCollectMetrics() {
     // Mapeamos los resultados para que n8n reciba solo la información necesaria
     return postsToCollect.map(p => ({
         post_history_id: p.id,
-        // Usamos ig_media_id para determinar la plataforma
         platform: p.ig_media_id ? 'instagram' : 'facebook', 
         platform_media_id: p.ig_media_id || p.fb_post_ids?.[0], 
     })).filter(p => p.platform_media_id);
