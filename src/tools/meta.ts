@@ -1,6 +1,5 @@
 // src/tools/meta.ts
-// Nota: Node 18+ tiene fetch global.
-// Este archivo es ESM; mantén los sufijos .js en imports relativos.
+// Refactorizado para usar el logger centralizado (log.ts)
 
 import { isPaused, reportMetaResult } from "../services/circuit.js";
 import { log } from "../lib/log.js"; // <--- IMPORTANTE: Nuevo logger
@@ -71,7 +70,6 @@ async function graphPost(path: string, body: any, token: string) {
   const json = await res.json().catch(() => ({})); // 'json' es el response.data
 
   if (!res.ok) {
-    // --- ESTA ES LA MAGIA ---
     // Creamos un error que imita la estructura de AxiosError
     // para que nuestro logger 'log.ts' lo parsee correctamente.
     const code = (json as any)?.error?.code ?? res.status;
@@ -105,6 +103,13 @@ async function publishInstagramOnce(imageUrls: string[], caption: string) {
 
   if (imageUrls.length <= 1) {
     const c = await graphPost(`/${ig}/media`, { image_url: imageUrls[0], caption }, token);
+    
+    // --- ¡SOLUCIÓN! ---
+    // Añadimos una pausa de 5 segundos para que Meta procese la imagen
+    // antes de intentar publicarla.
+    await sleep(5000); 
+    // --- FIN SOLUCIÓN ---
+
     const p = await graphPost(`/${ig}/media_publish`, { creation_id: c.id }, token);
     return { creation_id: c.id, media_id: p.id };
   }
@@ -116,6 +121,12 @@ async function publishInstagramOnce(imageUrls: string[], caption: string) {
     await sleep(30); // pequeño respiro por rate limiting
   }
   const c = await graphPost(`/${ig}/media`, { media_type: "CAROUSEL", caption, children }, token);
+
+  // --- ¡SOLUCIÓN! ---
+  // Añadimos también la pausa para los carruseles.
+  await sleep(5000);
+  // --- FIN SOLUCIÓN ---
+
   const p = await graphPost(`/${ig}/media_publish`, { creation_id: c.id }, token);
   return { creation_id: c.id, media_id: p.id };
 }
@@ -130,6 +141,7 @@ async function publishFacebookOnce(imageUrls: string[], caption: string) {
   // Si esto falla, el problema es el token/página. Si funciona, el problema es /photos.
   if (process.env.FB_TEST_MODE === "FEED") {
     console.warn("[FB_TEST_MODE=FEED] Intentando publicar en /feed");
+    await log('warn', 'FB_TEST_MODE=FEED activado', { caption });
     const r = await graphPost(`/${page}/feed`, { message: `Test post: ${caption}` }, token);
     return { post_ids: [r.id] };
   }
@@ -184,14 +196,11 @@ export async function publishFacebook(imageUrls: string[], caption: string) {
     await reportMetaResult("FB", false);
     
     // --- ¡¡LA SOLUCIÓN!! ---
-    // Aquí es donde logueamos el error de Facebook usando el nuevo logger.
-    // 'e' será el error estructurado de 'graphPost', y 'log.ts' lo saneará.
+    // Logueamos el error de Facebook saneado.
     await log("error", "FB publish failed", { images: imageUrls.length }, e);
     
-    // Como decidimos abandonar FB, no relanzamos el error para no detener
-    // el resto del agente. Simplemente devolvemos un estado de fallo.
-    // (Si prefieres que el agente falle, descomenta 'throw e;')
+    // Como decidimos abandonar FB, no relanzamos el error.
     return { status: "FAILED", error: (e as Error).message };
-    // throw e; 
+    // throw e; // Descomentar si prefieres que falle todo el batch
   }
 }
