@@ -1,0 +1,36 @@
+{
+  "name": "dogonauts-content-agent",
+  "version": "1.1.0",
+  "description": "Closed-loop content agent for Dogonauts e-commerce",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:prompts": "tsx -r dotenv/config scripts/test-prompts.ts",
+    "migrate:data": "tsx -r dotenv/config scripts/migrate-sqlite-to-supabase.ts",
+    "docker:build": "docker build -t dogonauts-agent .",
+    "docker:run": "docker run --env-file .env -p 3000:3000 dogonauts-agent"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.80.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "openai": "^4.20.0",
+    "sharp": "^0.33.1",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
+    "@types/node": "^20.19.24",
+    "tsc-alias": "^1.8.8",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

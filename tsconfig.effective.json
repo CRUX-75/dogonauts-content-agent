@@ -1,0 +1,90 @@
+{
+    "compilerOptions": {
+        "target": "es2022",
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "strict": true,
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
+        "resolveJsonModule": true,
+        "skipLibCheck": true,
+        "baseUrl": "./src",
+        "paths": {
+            "@/*": [
+                "*"
+            ]
+        },
+        "rootDir": "./src",
+        "outDir": "./dist",
+        "types": [
+            "node",
+            "express"
+        ],
+        "incremental": true,
+        "moduleDetection": "force",
+        "resolvePackageJsonExports": true,
+        "resolvePackageJsonImports": true,
+        "useDefineForClassFields": true,
+        "noImplicitAny": true,
+        "noImplicitThis": true,
+        "strictNullChecks": true,
+        "strictFunctionTypes": true,
+        "strictBindCallApply": true,
+        "strictPropertyInitialization": true,
+        "strictBuiltinIteratorReturn": true,
+        "alwaysStrict": true,
+        "useUnknownInCatchVariables": true
+    },
+    "files": [
+        "./src/brandConfig.ts",
+        "./src/fontEmbed.ts",
+        "./src/index.ts",
+        "./src/sharpCompositor.ts",
+        "./src/textRenderer.ts",
+        "./src/cli/enqueueStyle.ts",
+        "./src/cli/migrate.ts",
+        "./src/cli/style-products.ts",
+        "./src/core/db.ts",
+        "./src/core/imageStyleWorkers.ts",
+        "./src/core/job-processor.ts",
+        "./src/core/jobWorker.ts",
+        "./src/core/main.worker.ts",
+        "./src/core/scheduler.ts",
+        "./src/db/assets.ts",
+        "./src/db/jobs.ts",
+        "./src/db/migrate.ts",
+        "./src/db/products.ts",
+        "./src/db/seed.ts",
+        "./src/http/index.ts",
+        "./src/image_styler/index.ts",
+        "./src/image_styler/types.ts",
+        "./src/image_styler/pipelines/default.ts",
+        "./src/image_styler/styles/brand-ribbon.ts",
+        "./src/image_styler/styles/clean-bg.ts",
+        "./src/image_styler/styles/drop-shadow.ts",
+        "./src/image_styler/styles/watermark.ts",
+        "./src/modules/caption.engine.ts",
+        "./src/modules/image.styler.ts",
+        "./src/modules/job-creator.ts",
+        "./src/modules/publisher.ts",
+        "./src/modules/selector.ts",
+        "./src/prompts/brand-identity.ts",
+        "./src/scheduler/scheduler.ts",
+        "./src/utils/config.ts",
+        "./src/utils/data-helpers.ts",
+        "./src/utils/fs-utils.ts",
+        "./src/utils/http.ts",
+        "./src/utils/logger.ts",
+        "./src/utils/svgOverlay.ts",
+        "./src/utils/test-job-creator.ts",
+        "./src/worker/index.ts"
+    ],
+    "include": [
+        "src/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "scripts"
+    ]
+}

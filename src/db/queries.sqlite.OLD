@@ -1,0 +1,139 @@
+
+// src/db/queries.ts
+
+import { supabase } from './supabase';
+import { logger } from '../utils/logger';
+
+// Productos
+export async function getProductById(id: number) {
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .eq('id', id)
+    .single();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function getAllProducts() {
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .order('perf_score', { ascending: false });
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function updateProductPerformance(
+  productId: number,
+  perfScore: number,
+  lastPostedAt: Date
+) {
+  const { error } = await supabase
+    .from('products')
+    .update({
+      perf_score: perfScore,
+      last_posted_at: lastPostedAt.toISOString(),
+    })
+    .eq('id', productId);
+  
+  if (error) throw error;
+}
+
+// Job Queue
+export async function createJob(jobType: string, payload: any) {
+  const { data, error } = await supabase
+    .from('job_queue')
+    .insert({
+      job_type: jobType,
+      payload,
+      status: 'PENDING',
+    })
+    .select()
+    .single();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function getNextPendingJob() {
+  // Usar una transaction para reclamar el job atómicamente
+  const { data, error } = await supabase.rpc('get_and_claim_job');
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function updateJobStatus(
+  jobId: number,
+  status: string,
+  errorMessage?: string
+) {
+  const update: any = {
+    status,
+    completed_at: status === 'COMPLETED' || status === 'FAILED' ? new Date().toISOString() : undefined,
+    error_message: errorMessage,
+  };
+
+  if (status === 'RUNNING') {
+    update.started_at = new Date().toISOString();
+  }
+
+  const { error } = await supabase
+    .from('job_queue')
+    .update(update)
+    .eq('id', jobId);
+  
+  if (error) throw error;
+}
+
+// Caption Cache
+export async function getCachedCaption(productId: number, style: string) {
+  const { data, error } = await supabase
+    .from('caption_cache')
+    .select('value')
+    .eq('product_id', productId)
+    .eq('style', style)
+    .single();
+  
+  if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+    throw error;
+  }
+  
+  return data?.value || null;
+}
+
+export async function setCachedCaption(productId: number, style: string, value: any) {
+  const { error } = await supabase
+    .from('caption_cache')
+    .upsert({
+      product_id: productId,
+      style,
+      value,
+    }, {
+      onConflict: 'product_id,style',
+    });
+  
+  if (error) throw error;
+}
+
+// Post History
+export async function createPostRecord(data: {
+  product_id: number;
+  style_used: string;
+  headline: string;
+  caption: string;
+  ig_media_id?: string;
+  fb_post_id?: string;
+}) {
+  const { data: result, error } = await supabase
+    .from('post_history')
+    .insert(data)
+    .select()
+    .single();
+  
+  if (error) throw error;
+  return result;
+}

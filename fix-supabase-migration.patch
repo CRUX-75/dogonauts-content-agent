@@ -1,0 +1,36 @@
+# Pega aquí COMPLETO el parche que te pasé antes
+# (*** Begin Patch
+*** Update File: tsconfig.json
+@@
+ {
+-  "compilerOptions": {
+-    "target": "ES2020",
+-    "module": "CommonJS",
+-    "strict": true,
+-    "esModuleInterop": true,
+-    "skipLibCheck": true,
+-    "outDir": "dist"
+-  },
+-  "include": ["src", "scripts"]
++  "compilerOptions": {
++    "target": "ES2022",
++    "module": "ESNext",
++    "moduleResolution": "NodeNext",
++    "strict": true,
++    "esModuleInterop": true,
++    "allowSyntheticDefaultImports": true,
++    "resolveJsonModule": true,
++    "skipLibCheck": true,
++    "outDir": "dist",
++    "types": ["node"],
++    "lib": ["ES2022", "DOM"]
++  },
++  "include": ["src", "scripts/test-prompts.ts"],
++  "exclude": [
++    "src/core/db.ts",
++    "src/core/imageStyleWorkers.ts",
++    "src/db/seed.ts"
++  ]
+ }
+*** End Patch
+)
