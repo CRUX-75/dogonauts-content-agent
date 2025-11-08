@@ -1,6 +1,6 @@
 import { queries } from "../db/queries";
 import { processCaptionJob } from "../modules/caption.engine";
-import { processImageStyleJob } from "../modules/image.styler";
+import { processImageStyleJob } from "../modules/image.styler.js";
 
 export async function startWorker() {
   console.log("[worker] started");

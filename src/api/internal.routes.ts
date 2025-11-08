@@ -1,65 +1,69 @@
-import { Router, Request, Response } from 'express';
-// CORRECCIÓN 1: La ruta de importación de 'createJob' probablemente estaba mal.
-import { createJob } from '../modules/job-creator'; 
-import { logger } from '../utils/logger';
+// src/api/internal.routes.ts
+
+import { Router, Request, Response, NextFunction } from "express";
+import * as LoggerModule from "../utils/logger.js";
+import { createJobsFromRequest } from "../modules/job-creator.js";
+
+const log: any = (LoggerModule as any).logger ?? console;
 
 const router = Router();
 
 // Middleware de seguridad
-function validateInternalRequest(req: Request, res: Response, next: any) {
-  const secret = req.headers['x-internal-secret'];
+function validateInternalRequest(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const secretHeader = req.headers["x-internal-secret"];
+  const expected = process.env.INTERNAL_API_SECRET;
 
-  if (secret !== process.env.INTERNAL_API_SECRET) {
-    // CORRECCIÓN 2: El orden de los argumentos del logger estaba invertido.
-    logger.warn(
-      {
-        ip: req.ip,
-        headers: req.headers,
-      },
-      '⚠️  Unauthorized internal API call'
-    );
-    return res.status(403).json({ error: 'Forbidden' });
+  const provided =
+    typeof secretHeader === "string"
+      ? secretHeader
+      : Array.isArray(secretHeader)
+      ? secretHeader[0]
+      : undefined;
+
+  if (!expected) {
+    log.warn?.("INTERNAL_API_SECRET is not set; rejecting internal request");
+    return res.status(500).json({ ok: false, error: "Misconfigured server" });
   }
 
-  next();
+  if (!provided || provided !== expected) {
+    log.warn?.("Invalid internal secret", { provided });
+    return res.status(401).json({ ok: false, error: "Unauthorized" });
+  }
+
+  return next();
 }
 
-// Endpoint para encolar trabajos
-router.post(
-  '/enqueue',
-  validateInternalRequest,
-  async (req: Request, res: Response) => {
-    try {
-      const { job_type = 'CREATE_POST' } = req.body;
+router.use(validateInternalRequest);
 
-      // CORRECCIÓN 3: El orden de los argumentos del logger estaba invertido.
-      logger.info({ job_type }, '📥 Job enqueued from n8n');
+// Ruta interna para crear jobs
+router.post("/jobs", async (req: Request, res: Response) => {
+  try {
+    const payload = req.body as any;
 
-      // Solo crear el job PENDING - el Worker lo procesará
-      const job = await createJob(job_type, {
-        triggered_by: 'n8n',
-        scheduled_at: new Date().toISOString(),
-      });
+    const jobs = await createJobsFromRequest(payload);
 
-      res.json({
-        success: true,
-        job_id: job.id,
-        message: 'Job enqueued successfully',
-      });
-    } catch (error: any) {
-      // CORRECCIÓN 4: El orden de los argumentos del logger estaba invertido.
-      logger.error({ error: error.message }, '❌ Failed to enqueue job');
-      res.status(500).json({ error: error.message });
-    }
+    log.info?.("Internal jobs enqueued", {
+      count: Array.isArray(jobs) ? jobs.length : 1,
+    });
+
+    return res.status(201).json({
+      ok: true,
+      jobs,
+    });
+  } catch (e: any) {
+    log.error?.("Failed to create internal jobs", {
+      error: e?.message,
+    });
+
+    return res.status(500).json({
+      ok: false,
+      error: "Failed to create jobs",
+    });
   }
-);
-
-// Health check (sin autenticación)
-router.get('/health', (req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-  });
 });
 
 export default router;

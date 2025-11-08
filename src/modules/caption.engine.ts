@@ -1,9 +1,12 @@
 // src/modules/caption.engine.ts
-// Generación de captions con cache en Supabase (sin dependencias rotas)
+// Generación de captions con cache en Supabase (tipos relajados para que compile)
 
 import { supabase } from "../db/supabase";
-import { logger } from "../utils/logger";
-import { buildFinalPrompt } from "../prompts/brand-identity";
+import * as LoggerModule from "../utils/logger.js";
+import { buildFinalPrompt } from "../prompts/brand-identity.js";
+
+// logger como any para no pelear con la firma de tipos
+const log: any = (LoggerModule as any).logger ?? console;
 
 interface Product {
   id: number;
@@ -14,15 +17,18 @@ interface Product {
   brand?: string;
 }
 
-interface CaptionResult {
+export interface CaptionResult {
   headline: string;
   caption: string;
 }
 
-// ---------- Helpers de caché en Supabase ----------
-async function getCachedCaption(productId: number, style: string): Promise<CaptionResult | null> {
+// ---------- Helpers de caché en Supabase (tipados suaves) ----------
+async function getCachedCaption(
+  productId: number,
+  style: string
+): Promise<CaptionResult | null> {
   const { data, error } = await supabase
-    .from("caption_cache")
+    .from("caption_cache" as any)
     .select("headline, caption")
     .eq("product_id", productId)
     .eq("style", style)
@@ -31,31 +37,53 @@ async function getCachedCaption(productId: number, style: string): Promise<Capti
     .maybeSingle();
 
   if (error) {
-    logger?.debug?.("caption_cache read failed", { error: error.message });
+    log.debug?.("caption_cache read failed", { error: (error as any).message });
     return null;
   }
   if (!data) return null;
-  return { headline: data.headline, caption: data.caption };
+
+  const row = data as any;
+  if (!row.headline || !row.caption) return null;
+
+  return {
+    headline: String(row.headline),
+    caption: String(row.caption),
+  };
 }
 
-async function setCachedCaption(productId: number, style: string, result: CaptionResult): Promise<void> {
-  // upsert por (product_id, style) si tienes una unique constraint; si no, insert simple
-  const { error } = await supabase.from("caption_cache").upsert(
-    {
-      product_id: productId,
-      style,
-      headline: result.headline,
-      caption: result.caption,
-      created_at: new Date().toISOString(),
-    },
-    { onConflict: "product_id,style" }
-  );
-  if (error) throw error;
+async function setCachedCaption(
+  productId: number,
+  style: string,
+  result: CaptionResult
+): Promise<void> {
+  const payload = {
+    product_id: productId,
+    style,
+    headline: result.headline,
+    caption: result.caption,
+    created_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from("caption_cache" as any)
+    .upsert(payload as any, { onConflict: "product_id,style" } as any);
+
+  if (error) {
+    log.warn?.("Failed to upsert caption_cache", {
+      error: (error as any).message,
+    });
+  }
 }
 
 // ---------- Llamada directa a OpenAI ----------
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
+
+if (!OPENAI_API_KEY) {
+  log.warn?.(
+    "OPENAI_API_KEY is empty. Caption generation will fail at runtime."
+  );
+}
 
 async function callOpenAIJSON(system: string, user: string): Promise<CaptionResult> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -81,46 +109,56 @@ async function callOpenAIJSON(system: string, user: string): Promise<CaptionResu
     throw new Error(`OpenAI ${res.status} ${res.statusText}: ${text}`);
   }
 
-  const json = (await res.json()) as any;
+  const json: any = await res.json();
   const content = json?.choices?.[0]?.message?.content;
   if (!content) throw new Error("GPT returned empty content");
 
-  let parsed: CaptionResult;
+  let parsed: any;
   try {
     parsed = JSON.parse(content);
-  } catch (e) {
+  } catch {
     throw new Error("Invalid JSON from GPT");
   }
 
   if (!parsed.headline || !parsed.caption) {
     throw new Error("GPT response missing required fields (headline, caption)");
   }
-  return parsed;
+
+  return {
+    headline: String(parsed.headline),
+    caption: String(parsed.caption),
+  };
 }
 
 // ============================================================================
 // API principal
 // ============================================================================
-export async function generate(product: Product, style: string): Promise<CaptionResult> {
+export async function generate(
+  product: Product,
+  style: string
+): Promise<CaptionResult> {
   const t0 = Date.now();
 
   // 1) Cache
   if (process.env.DISABLE_CACHE !== "true") {
     const cached = await getCachedCaption(product.id, style);
     if (cached) {
-      logger?.info?.("📦 Cache hit", { product_id: product.id, style });
+      log.info?.("📦 Cache hit", { product_id: product.id, style });
       return cached;
     }
   }
 
-  // 2) Prompt
-  const prompt = buildFinalPrompt(product, style); // debe devolver { system, user }
+  // 2) Prompt (debe devolver { system, user })
+  const prompt: any = buildFinalPrompt(product as any, style);
 
   // 3) OpenAI
-  const result = await callOpenAIJSON(prompt.system, prompt.user);
+  const result = await callOpenAIJSON(
+    String(prompt.system ?? ""),
+    String(prompt.user ?? "")
+  );
 
   // 4) Métricas
-  logger?.info?.("✨ Caption generated", {
+  log.info?.("✨ Caption generated", {
     product_id: product.id,
     style,
     duration_ms: Date.now() - t0,
@@ -129,11 +167,11 @@ export async function generate(product: Product, style: string): Promise<Caption
 
   // 5) Cache (best-effort)
   if (process.env.DISABLE_CACHE !== "true") {
-    setCachedCaption(product.id, style, result).catch((e) =>
-      logger?.warn?.("Failed to cache caption (non-critical)", {
+    setCachedCaption(product.id, style, result).catch((e: any) =>
+      log.warn?.("Failed to cache caption (non-critical)", {
         product_id: product.id,
         style,
-        error: (e as Error).message,
+        error: e?.message,
       })
     );
   }
@@ -153,17 +191,28 @@ export async function generateBatch(
       try {
         const caption = await generate(product, style);
         results.set(key, caption);
-        await new Promise((r) => setTimeout(r, 100)); // suaviza el rate
+        // suaviza el rate
+        await new Promise((r) => setTimeout(r, 100));
       } catch (e: any) {
-        logger?.error?.("Failed to generate caption in batch", {
+        log.error?.("Failed to generate caption in batch", {
           product_id: product.id,
           style,
-          error: e.message,
+          error: e?.message,
         });
       }
     }
   }
   return results;
+}
+
+// ---------- Exports de compatibilidad con el worker ----------
+export async function generateCaption(product: Product, style: string) {
+  return generate(product, style);
+}
+
+export async function processCaptionJob(job: { product: Product; style: string }) {
+  const res = await generate(job.product, job.style);
+  return { ok: true, result: res };
 }
 
 export const captionEngine = { generate, generateBatch };

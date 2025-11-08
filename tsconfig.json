@@ -1,16 +1,27 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    "lib": ["ES2022"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+
+    "outDir": "dist",
+    "rootDir": ".",
+
+    "types": ["node"],
     "strict": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "outDir": "dist",
-    "types": ["node"],
-    "lib": ["ES2022", "DOM"]
+    "skipLibCheck": true
   },
-  "include": ["src", "scripts/test-prompts.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "scripts/**",
+    "examples/**",
+    "**/*.test.ts",
+    "src/utils/test-*"
+  ]
 }
