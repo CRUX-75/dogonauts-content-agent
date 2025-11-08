@@ -5,8 +5,8 @@
   "main": "dist/index.js",
     "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/src/index.js",
+    "build": "tsc",
+    "start": "node dist/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:prompts": "tsx -r dotenv/config scripts/test-prompts.ts",
     "migrate:data": "tsx -r dotenv/config scripts/migrate-sqlite-to-supabase.ts",
