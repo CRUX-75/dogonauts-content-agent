@@ -1,0 +1,127 @@
+services:
+  # ============================================================================
+  # Dogonauts Content Agent (Node.js Worker + API)
+  # ============================================================================
+  dogonauts-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dogonauts-agent
+    restart: unless-stopped
+    
+    # Variables de entorno
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      
+      # Supabase
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      
+      # Meta API
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN}
+      IG_ACCOUNT_ID: ${IG_ACCOUNT_ID}
+      FB_PAGE_ID: ${FB_PAGE_ID}
+      
+      # Seguridad interna
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      
+      # Configuración del agente
+      COOLDOWN_DAYS: 7
+      EPSILON: 0.2
+      
+      # Caché (opcional)
+      DISABLE_CACHE: false
+    
+    # Puertos
+    ports:
+      - "3000:3000"
+    
+    # Volúmenes persistentes
+    volumes:
+      - ./assets:/app/assets
+      - ./logs:/app/logs
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Red interna
+    networks:
+      - dogonauts-network
+    
+    # Límites de recursos (ajustar según tu plan de Hetzner)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============================================================================
+  # n8n (Opcional - CRON Scheduler)
+  # Solo si quieres usar n8n en el mismo servidor
+  # ============================================================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n-scheduler
+    restart: unless-stopped
+    
+    environment:
+      # Autenticación básica
+      N8N_BASIC_AUTH_ACTIVE: true
+      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD}
+      
+      # Configuración
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678}
+      
+      # Timezone
+      GENERIC_TIMEZONE: Europe/Berlin
+      TZ: Europe/Berlin
+      
+      # Variables personalizadas (para usar en workflows)
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      DOGONAUTS_API_URL: http://dogonauts-agent:3000
+    
+    ports:
+      - "5678:5678"
+    
+    volumes:
+      - n8n-data:/home/node/.n8n
+    
+    networks:
+      - dogonauts-network
+    
+    depends_on:
+      dogonauts-agent:
+        condition: service_healthy
+
+# ============================================================================
+# REDES
+# ============================================================================
+networks:
+  dogonauts-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# ============================================================================
+# VOLÚMENES
+# ============================================================================
+volumes:
+  n8n-data:
+    driver: local
