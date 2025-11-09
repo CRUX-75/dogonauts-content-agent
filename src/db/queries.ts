@@ -1,40 +1,42 @@
+// src/db/queries.ts
 import { supabase } from "./supabase.js";
 
 export type JobStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
 
+export type JobType = "CREATE_POST" | "FEEDBACK_LOOP" | "AB_TEST";
+
 export type Job = {
-  id: number; // bigint en Supabase → number en JS
-  type: "CREATE_POST" | "FEEDBACK_LOOP" | "AB_TEST";
+  id: number;
+  type: JobType | null;
   payload: any;
   status: JobStatus;
-  source?: string | null;
   error_message?: string | null;
-  attempts?: number | null;
+  attempts: number;
   created_at: string;
   started_at?: string | null;
   completed_at?: string | null;
+  source?: string | null;
 };
 
 export const queries = {
-  // ---------------------------------------------------------------------------
-  // Health check: simplemente verifica que la tabla exista y responda
-  // ---------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Health check
+  // -------------------------------------------------------------------------
   async healthCheck() {
     try {
       const { error } = await supabase
         .from("job_queue")
         .select("id")
         .limit(1);
-
       return !error;
     } catch {
       return false;
     }
   },
 
-  // ---------------------------------------------------------------------------
-  // Métricas del sistema (solo jobs por ahora)
-  // ---------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // System metrics
+  // -------------------------------------------------------------------------
   async getSystemMetrics() {
     const { count: pending } = await supabase
       .from("job_queue")
@@ -61,8 +63,6 @@ export const queries = {
       running_jobs: running || 0,
       completed_jobs: completed || 0,
       failed_jobs: failed || 0,
-
-      // placeholders hasta que conectemos las demás tablas
       total_posts: 0,
       posts_last_7_days: 0,
       total_products: 0,
@@ -70,47 +70,36 @@ export const queries = {
     };
   },
 
-  // ---------------------------------------------------------------------------
-  // Crear job genérico (usado por /internal/enqueue)
-  // ---------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Crear job (usado por /internal/enqueue)
+  // -------------------------------------------------------------------------
   async createJob(input: {
-    type: Job["type"];
+    type: JobType;
     status?: JobStatus;
     source?: string;
-    payload?: Record<string, any>;
-  }) {
-    const {
-      type,
-      status = "PENDING",
-      source = "api",
-      payload = {},
-    } = input;
+    payload?: any;
+  }): Promise<Job> {
+    const insertData = {
+      type: input.type,
+      status: input.status ?? "PENDING",
+      source: input.source ?? "api",
+      payload: input.payload ?? {}, // jsonb NOT NULL
+    };
 
     const { data, error } = await supabase
       .from("job_queue")
-      .insert([
-        {
-          type,
-          status,
-          source,
-          payload,
-        },
-      ])
+      .insert(insertData)
       .select()
       .single();
 
-    if (error) {
-      console.error("Supabase createJob error", error);
-      throw new Error(`Supabase createJob failed: ${error.message}`);
-    }
-
+    if (error) throw error;
     return data as Job;
   },
 
-  // ---------------------------------------------------------------------------
-  // Obtener job por ID
-  // ---------------------------------------------------------------------------
-  async getJobById(jobId: string | number) {
+  // -------------------------------------------------------------------------
+  // Leer job por ID (para /internal/jobs/:jobId)
+  // -------------------------------------------------------------------------
+  async getJobById(jobId: string | number): Promise<Job | null> {
     const { data, error } = await supabase
       .from("job_queue")
       .select("*")
@@ -121,16 +110,25 @@ export const queries = {
     return data as Job;
   },
 
-  // ---------------------------------------------------------------------------
-  // Actualizar status de un job (opcionalmente con error_message)
-  // ---------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Update genérico de estado (usado por cancel, etc.)
+  // -------------------------------------------------------------------------
   async updateJobStatus(
     jobId: string | number,
     status: JobStatus,
-    errorMsg?: string,
+    errorMsg?: string
   ) {
     const updateData: any = { status };
+
     if (errorMsg) updateData.error_message = errorMsg;
+
+    if (status === "RUNNING") {
+      updateData.started_at = new Date().toISOString();
+    }
+
+    if (status === "COMPLETED" || status === "FAILED") {
+      updateData.completed_at = new Date().toISOString();
+    }
 
     const { error } = await supabase
       .from("job_queue")
@@ -140,27 +138,30 @@ export const queries = {
     return !error;
   },
 
-  // ---------------------------------------------------------------------------
-  // Helper simple para encolar jobs desde dentro del agente
-  // ---------------------------------------------------------------------------
-  async enqueueJob(
-    type: Job["type"],
-    payload: unknown,
-    source: string = "internal",
-  ) {
-    return queries.createJob({
-      type,
-      status: "PENDING",
-      source,
-      payload: payload as Record<string, any>,
-    });
+  // -------------------------------------------------------------------------
+  // Worker: encolar desde código (si quieres usar este helper)
+  // -------------------------------------------------------------------------
+  async enqueueJob(type: JobType, payload: unknown) {
+    const { data, error } = await supabase
+      .from("job_queue")
+      .insert({
+        type,
+        status: "PENDING" as JobStatus,
+        source: "worker",
+        payload,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as Job;
   },
 
-  // ---------------------------------------------------------------------------
-  // Tomar el próximo job PENDING y marcarlo como RUNNING
-  // ---------------------------------------------------------------------------
-  async getAndClaimJob() {
-    // 1) buscar el más viejo en estado PENDING
+  // -------------------------------------------------------------------------
+  // Worker: reclamar siguiente job PENDING
+  // -------------------------------------------------------------------------
+  async getAndClaimJob(): Promise<Job | null> {
+    // 1) Leer el más viejo PENDING
     const { data, error } = await supabase
       .from("job_queue")
       .select("*")
@@ -172,12 +173,13 @@ export const queries = {
     if (error) throw error;
     if (!data) return null;
 
-    // 2) marcarlo como RUNNING
+    // 2) Marcarlo como RUNNING
     const { data: claimed, error: updErr } = await supabase
       .from("job_queue")
       .update({
         status: "RUNNING",
         started_at: new Date().toISOString(),
+        attempts: (data.attempts ?? 0) + 1,
       })
       .eq("id", data.id)
       .select()
@@ -187,9 +189,9 @@ export const queries = {
     return claimed as Job;
   },
 
-  // ---------------------------------------------------------------------------
-  // Marcar job como COMPLETED
-  // ---------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Worker: marcar COMPLETED
+  // -------------------------------------------------------------------------
   async setJobResult(id: string | number) {
     const { error } = await supabase
       .from("job_queue")
@@ -202,9 +204,9 @@ export const queries = {
     if (error) throw error;
   },
 
-  // ---------------------------------------------------------------------------
-  // Marcar job como FAILED
-  // ---------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Worker: marcar FAILED
+  // -------------------------------------------------------------------------
   async setJobFailed(id: string | number, reason: string) {
     const { error } = await supabase
       .from("job_queue")
