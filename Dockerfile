@@ -14,6 +14,7 @@ COPY tsconfig.json ./
 
 # Instalar todas las dependencias (incluyendo dev)
 RUN npm ci
+RUN npm prune --omit=dev
 
 # Copiar código fuente
 COPY src ./src
