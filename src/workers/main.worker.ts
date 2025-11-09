@@ -1,20 +1,85 @@
-import { queries } from "../db/queries.js";
-import { processCaptionJob } from "../modules/caption.engine.js";
-import { processImageStyleJob } from "../modules/image.styler.js";
+// src/workers/main.worker.ts
+// Worker principal: consume job_queue en Supabase y procesa jobs del agente
+
+import { queries, Job } from '../db/queries.js';
+import { logger } from '../utils/logger.js';
+
+const POLL_INTERVAL_MS = 15_000; // 15s
+
+async function handleJob(job: Job) {
+  try {
+    logger.info({ jobId: job.id, type: job.type }, '🧵 Empezando job');
+
+    switch (job.type) {
+      case 'CREATE_POST':
+        // TODO: pipeline real de publicación:
+        // 1) selección de producto
+        // 2) caption.engine (GPT)
+        // 3) image styler
+        // 4) publisher Meta
+        logger.info({ jobId: job.id }, 'Procesando job CREATE_POST (pipeline TODO)');
+        await queries.setJobResult(job.id);
+        break;
+
+      case 'FEEDBACK_LOOP':
+        // TODO: worker de feedback (leer métricas de Meta y actualizar perf_score)
+        logger.info({ jobId: job.id }, 'Procesando job FEEDBACK_LOOP (feedback TODO)');
+        await queries.setJobResult(job.id);
+        break;
+
+      case 'AB_TEST':
+        // TODO: lógica de A/B testing activo
+        logger.info({ jobId: job.id }, 'Procesando job AB_TEST (A/B testing TODO)');
+        await queries.setJobResult(job.id);
+        break;
+
+      default:
+        // No deberíamos llegar aquí, pero por si acaso:
+        logger.warn({ jobId: job.id, type: job.type }, 'Tipo de job desconocido, marcando FAILED');
+        await queries.setJobFailed(job.id, `Unknown job type: ${job.type}`);
+        break;
+    }
+
+    logger.info({ jobId: job.id, type: job.type }, '✅ Job completado');
+  } catch (err: any) {
+    logger.error(
+      {
+        jobId: job.id,
+        error: err?.message ?? String(err),
+      },
+      '❌ Error procesando job',
+    );
+
+    await queries.setJobFailed(
+      job.id,
+      err instanceof Error ? err.message : 'Unknown error while processing job',
+    );
+  }
+}
 
 export async function startWorker() {
-  console.log("[worker] started");
-  // loop simple; en producción puedes usar setInterval o un scheduler
-  setInterval(async () => {
+  logger.info('[worker] started');
+
+  const loop = async () => {
     try {
       const job = await queries.getAndClaimJob();
-      if (!job) return;
 
-      if (job.type === "CAPTION") await processCaptionJob(job as any);
-      else if (job.type === "IMAGE_STYLE") await processImageStyleJob(job as any);
-      else await queries.setJobFailed(job.id, `unknown job type: ${job.type}`);
-    } catch (e: any) {
-      console.error("[worker] error", e.message);
+      if (!job) {
+        // Nada pendiente
+        return;
+      }
+
+      await handleJob(job);
+    } catch (err: any) {
+      logger.error(
+        { error: err?.message ?? String(err) },
+        '❌ Error en el loop del worker',
+      );
     }
-  }, 2000);
+  };
+
+  // Primera pasada inmediata
+  await loop();
+  // Luego polling periódico
+  setInterval(loop, POLL_INTERVAL_MS);
 }
