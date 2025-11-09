@@ -164,14 +164,14 @@ app.post('/internal/enqueue', validateInternalSecret, async (req: Request, res: 
     }
     
     // Crear el job en la cola
-    const job = await queries.createJob({
-      type,
-      status: 'PENDING',
-      priority: priority || 0,
-      scheduled_by: scheduled_by || 'api',
-      metadata: metadata || {},
-      created_at: new Date().toISOString()
-    });
+  const job = await queries.createJob({
+  type,
+  status: 'PENDING',
+  source: scheduled_by || metadata?.source || 'api',
+  payload: metadata || {
+    trigger: 'api',
+  },
+});
     
 // ✅ CORRECTO (objeto, mensaje):
 logger.info({
