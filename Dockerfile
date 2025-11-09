@@ -14,7 +14,6 @@ COPY tsconfig.json ./
 
 # Instalar todas las dependencias (incluyendo dev)
 RUN npm ci
-RUN npm prune --omit=dev
 
 # Copiar código fuente
 COPY src ./src
@@ -54,9 +53,9 @@ USER nodejs
 # Exponer puerto
 EXPOSE 3000
 
-# Health check (ARREGLADO para ES Modules)
+# Health check (para ES Modules)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD node -e "import('http').then(http => http.get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)))"
 
-# Comando de inicio (ARREGLADO: dist/index.js no dist/src/index.js)
+# Comando de inicio
 CMD ["node", "dist/index.js"]
