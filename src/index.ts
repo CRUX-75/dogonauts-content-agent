@@ -2,10 +2,10 @@
 // Punto de entrada principal del Dogonauts Content Agent
 
 import "dotenv/config";
-import { startServer } from './api/server';
-import { startWorker } from './workers/main.worker';
-import { logger } from './utils/logger';
-import { supabase } from './db/supabase';
+import { startServer } from './api/server.js';
+import { startWorker } from './workers/main.worker.js';
+import { logger } from './utils/logger.js';
+import { supabase } from './db/supabase.js';
 
 // ============================================================================
 // VALIDACIÓN DE CONFIGURACIÓN
@@ -14,7 +14,7 @@ import { supabase } from './db/supabase';
 function validateEnvironment() {
   const required = [
     'SUPABASE_URL',
-    'SUPABASE_SERVICE_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
     'OPENAI_API_KEY',
     'INTERNAL_API_SECRET',
   ];

@@ -7,17 +7,36 @@ function fmt(level: string, msg: string, fields?: Fields) {
 
 export const logger = {
   info(a: string | Fields, b?: string) {
-    typeof a === 'string' ? console.log(fmt('info', a)) : console.log(fmt('info', b || '', a));
+    if (typeof a === 'string') {
+      console.log(fmt('info', a));
+    } else {
+      console.log(fmt('info', b || '', a));
+    }
   },
-  error(a: string | Fields, b?: string) {
-    typeof a === 'string' ? console.error(fmt('error', a)) : console.error(fmt('error', b || '', a));
+  
+  error(a: string | Fields, b?: string | unknown) {
+    if (typeof a === 'string') {
+      const errMsg = b instanceof Error ? b.message : String(b);
+      console.error(fmt('error', a, b ? { error: errMsg } : undefined));
+    } else {
+      console.error(fmt('error', String(b) || '', a));
+    }
   },
-  // 💡 Corrección: Añadimos la función 'warn' que faltaba.
+  
   warn(a: string | Fields, b?: string) {
-    typeof a === 'string' ? console.warn(fmt('warn', a)) : console.warn(fmt('warn', b || '', a));
+    if (typeof a === 'string') {
+      console.warn(fmt('warn', a));
+    } else {
+      console.warn(fmt('warn', b || '', a));
+    }
   },
+  
   debug(a: string | Fields, b?: string) {
     if (process.env.DEBUG !== '1') return;
-    typeof a === 'string' ? console.debug(fmt('debug', a)) : console.debug(fmt('debug', b || '', a));
+    if (typeof a === 'string') {
+      console.debug(fmt('debug', a));
+    } else {
+      console.debug(fmt('debug', b || '', a));
+    }
   }
 };

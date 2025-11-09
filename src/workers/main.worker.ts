@@ -1,5 +1,5 @@
-import { queries } from "../db/queries";
-import { processCaptionJob } from "../modules/caption.engine";
+import { queries } from "../db/queries.js";
+import { processCaptionJob } from "../modules/caption.engine.js";
 import { processImageStyleJob } from "../modules/image.styler.js";
 
 export async function startWorker() {

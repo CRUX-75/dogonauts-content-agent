@@ -1,7 +1,7 @@
 // src/modules/caption.engine.ts
 // Generación de captions con cache en Supabase (tipos relajados para que compile)
 
-import { supabase } from "../db/supabase";
+import { supabase } from "../db/supabase.js";
 import * as LoggerModule from "../utils/logger.js";
 import { buildFinalPrompt } from "../prompts/brand-identity.js";
 

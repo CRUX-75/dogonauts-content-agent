@@ -1,8 +1,8 @@
 
 // src/db/queries.ts
 
-import { supabase } from './supabase';
-import { logger } from '../utils/logger';
+import { supabase } from './supabase.js';
+import { logger } from '../utils/logger.js';
 
 // Productos
 export async function getProductById(id: number) {
