@@ -13,17 +13,19 @@ async function handleJob(job: Job) {
 
     switch (job.type) {
       case "CREATE_POST": {
-        // 🔥 Aquí llamamos al pipeline real
-        await runCreatePostPipeline({
-          id: String(job.id),
-          type: "CREATE_POST",
-          payload: (job.payload as any) ?? {},
-        });
+  // 🚨 MARCA para saber que estamos en el código nuevo
+  logger.info({ jobId: job.id }, "[CREATE_POST] Usando pipeline NUEVO v2");
 
-        // Marca el job como completado en job_queue
-        await queries.setJobResult(job.id);
-        break;
-      }
+  await runCreatePostPipeline({
+    id: String(job.id),
+    type: "CREATE_POST",
+    payload: (job.payload as any) ?? {},
+  });
+
+  await queries.setJobResult(job.id);
+  break;
+}
+
 
       case "FEEDBACK_LOOP": {
         // TODO: worker de feedback (leer métricas de Meta y actualizar perf_score)
