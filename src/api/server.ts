@@ -186,7 +186,7 @@ app.post('/internal/enqueue', validateInternalSecret, async (req: Request, res: 
       return res.status(500).json({
         success: false,
         error: 'Failed to enqueue job',
-        details: error.message ?? error,
+        details: error.message ??  String(error),
       });
     }
 
@@ -207,8 +207,12 @@ app.post('/internal/enqueue', validateInternalSecret, async (req: Request, res: 
       status: data?.status,
       message: 'Job enqueued successfully',
     });
-  } catch (error: any) {
-    logger.error('Error enqueuing job:', error);
+  }   catch (error: any) {
+    logger.error(
+      { error, body: req.body },
+      'Error enqueuing job (exception)',
+    );
+
     return res.status(500).json({
       success: false,
       error: 'Failed to enqueue job',
