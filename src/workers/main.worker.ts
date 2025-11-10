@@ -12,9 +12,9 @@ async function handleJob(job: Job) {
     logger.info({ jobId: job.id, type: job.type }, "🧵 Empezando job");
 
     switch (job.type) {
-           case "CREATE_POST": {
+      case "CREATE_POST": {
         await runCreatePostPipeline({
-          id: String(job.id),           // 👈 casteo aquí
+          id: String(job.id),
           type: "CREATE_POST",
           payload: (job.payload as any) ?? {},
         });
@@ -22,8 +22,7 @@ async function handleJob(job: Job) {
         break;
       }
 
-        case "FEEDBACK_LOOP":
-        // TODO: worker de feedback (leer métricas de Meta y actualizar perf_score)
+      case "FEEDBACK_LOOP":
         logger.info(
           { jobId: job.id },
           "Procesando job FEEDBACK_LOOP (feedback TODO)"
@@ -32,7 +31,6 @@ async function handleJob(job: Job) {
         break;
 
       case "AB_TEST":
-        // TODO: lógica de A/B testing activo
         logger.info(
           { jobId: job.id },
           "Procesando job AB_TEST (A/B testing TODO)"
@@ -41,7 +39,6 @@ async function handleJob(job: Job) {
         break;
 
       default:
-        // No deberíamos llegar aquí, pero por si acaso:
         logger.warn(
           { jobId: job.id, type: job.type },
           "Tipo de job desconocido, marcando FAILED"

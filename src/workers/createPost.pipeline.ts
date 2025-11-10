@@ -1,4 +1,6 @@
 // src/workers/createPost.pipeline.ts
+// Pipeline CREATE_POST: elegir producto + estilo + generar caption + guardar DRAFT
+
 import { supabase } from "../db/supabase.js";
 import { logger } from "../utils/logger.js";
 import {
@@ -23,14 +25,14 @@ export async function runCreatePostPipeline(job: {
     "[CREATE_POST] Iniciando pipeline"
   );
 
-  // 1) Epsilon-Greedy → producto
+  // 1) Producto con Epsilon-Greedy
   const product: ProductRow = await chooseProductForCreatePost();
   logger.info(
     { jobId: job.id, productId: product.id, productName: product.name },
     "[CREATE_POST] Producto elegido"
   );
 
-  // 2) Epsilon-Greedy → estilo (usamos IG como canal base si BOTH)
+  // 2) Estilo con Epsilon-Greedy (IG como canal base si BOTH)
   const primaryChannel =
     channelTarget === "BOTH" ? "IG" : (channelTarget as "IG" | "FB");
   const style = await pickStyleWithEpsilonGreedy(primaryChannel);
@@ -39,7 +41,7 @@ export async function runCreatePostPipeline(job: {
     "[CREATE_POST] Estilo elegido"
   );
 
-  // 3) Caption con TU caption-engine (usa cache en Supabase)
+  // 3) Caption usando caption-engine (con cache en Supabase)
   const captionRes = await generateCaption(
     {
       id: product.id,
@@ -53,13 +55,13 @@ export async function runCreatePostPipeline(job: {
   );
 
   const captionIG = captionRes.caption;
-  const captionFB = captionRes.caption; // luego podemos diferenciarlos
+  const captionFB = captionRes.caption; // más adelante lo diferenciamos
 
   const creativeBrief = `Visual basierend auf dem Stil "${style}": Produkt "${product.name}" im Fokus, klare Lesbarkeit des Headlines "${captionRes.headline}", dezentes Dogonauts-Space-Branding.`;
 
   const imagePrompt = `High quality product photo of "${product.name}" with a ${style} background, soft shadows, Dogonauts space-themed branding, Instagram feed ready, square format.`;
 
-  // 4) Guardar borrador en generated_posts
+  // 4) Insertar DRAFT en generated_posts
   const { data, error } = await supabase
     .from("generated_posts" as any)
     .insert({
@@ -69,7 +71,7 @@ export async function runCreatePostPipeline(job: {
       caption_fb: captionFB,
       creative_brief: creativeBrief,
       image_prompt: imagePrompt,
-      tone: "funny", // luego puedes mapear esto desde el prompt si quieres
+      tone: "funny", // luego lo hacemos dinámico
       style,
       status: "DRAFT",
       job_id: job.id,
