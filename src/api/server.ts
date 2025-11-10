@@ -7,6 +7,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { queries } from '../db/queries.js'; // ⚠️ Nota el .js
 import { logger } from '../utils/logger.js';
+import { supabase } from '../db/supabase.js';
 
 const app = express();
 
@@ -146,52 +147,72 @@ interface EnqueueJobRequest {
 app.post('/internal/enqueue', validateInternalSecret, async (req: Request, res: Response) => {
   try {
     const { type, scheduled_by, priority, metadata }: EnqueueJobRequest = req.body;
-    
+
     // Validaciones básicas
     if (!type) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required field: type'
+        error: 'Missing required field: type',
       });
     }
-    
+
     const validTypes = ['CREATE_POST', 'FEEDBACK_LOOP', 'AB_TEST'];
     if (!validTypes.includes(type)) {
       return res.status(400).json({
         success: false,
-        error: `Invalid job type. Must be one of: ${validTypes.join(', ')}`
+        error: `Invalid job type. Must be one of: ${validTypes.join(', ')}`,
       });
     }
-    
-    // Crear el job en la cola
-  const job = await queries.createJob({
-  type,
-  status: 'PENDING',
-  source: scheduled_by || metadata?.source || 'api',
-  payload: metadata || {
-    trigger: 'api',
-  },
-});
-    
-// ✅ CORRECTO (objeto, mensaje):
-logger.info({
-  type,
-  scheduled_by,
-  priority
-}, `Job ${job.id} encolado exitosamente`);
-    res.status(201).json({
+
+    // 🎯 Insertar directamente en job_queue usando el schema actual
+    const payload = metadata || { trigger: 'api' };
+
+    const { data, error } = await supabase
+      .from('job_queue' as any)
+      .insert({
+        type,
+        payload,          // jsonb
+        status: 'PENDING' // nuestro enum job_status
+      } as any)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      logger.error(
+        { supabaseError: error, body: req.body },
+        'Error enqueuing job (Supabase)',
+      );
+
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to enqueue job',
+        details: error.message ?? error,
+      });
+    }
+
+    logger.info(
+      {
+        type,
+        scheduled_by,
+        priority,
+        jobId: data?.id,
+      },
+      `Job ${data?.id} encolado exitosamente`,
+    );
+
+    return res.status(201).json({
       success: true,
-      job_id: job.id,
-      type: job.type,
-      status: job.status,
-      message: 'Job enqueued successfully'
+      job_id: data?.id,
+      type: data?.type,
+      status: data?.status,
+      message: 'Job enqueued successfully',
     });
-    
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Error enqueuing job:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to enqueue job'
+      error: 'Failed to enqueue job',
+      details: error?.message ?? String(error),
     });
   }
 });
