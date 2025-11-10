@@ -1,64 +1,74 @@
-// src/workers/main.worker.ts
+// src/workers/main.worker.ts 
 // Worker principal: consume job_queue en Supabase y procesa jobs del agente
 
-import { queries, Job } from '../db/queries.js';
-import { logger } from '../utils/logger.js';
+import { queries, Job } from "../db/queries.js";
+import { logger } from "../utils/logger.js";
+import { runCreatePostPipeline } from "./createPost.pipeline.js";
 
 const POLL_INTERVAL_MS = 15_000; // 15s
 
 async function handleJob(job: Job) {
   try {
-    logger.info({ jobId: job.id, type: job.type }, '🧵 Empezando job');
+    logger.info({ jobId: job.id, type: job.type }, "🧵 Empezando job");
 
     switch (job.type) {
-      case 'CREATE_POST':
-        // TODO: pipeline real de publicación:
-        // 1) selección de producto
-        // 2) caption.engine (GPT)
-        // 3) image styler
-        // 4) publisher Meta
-        logger.info({ jobId: job.id }, 'Procesando job CREATE_POST (pipeline TODO)');
+           case "CREATE_POST": {
+        await runCreatePostPipeline({
+          id: String(job.id),           // 👈 casteo aquí
+          type: "CREATE_POST",
+          payload: (job.payload as any) ?? {},
+        });
         await queries.setJobResult(job.id);
         break;
+      }
 
-      case 'FEEDBACK_LOOP':
+        case "FEEDBACK_LOOP":
         // TODO: worker de feedback (leer métricas de Meta y actualizar perf_score)
-        logger.info({ jobId: job.id }, 'Procesando job FEEDBACK_LOOP (feedback TODO)');
+        logger.info(
+          { jobId: job.id },
+          "Procesando job FEEDBACK_LOOP (feedback TODO)"
+        );
         await queries.setJobResult(job.id);
         break;
 
-      case 'AB_TEST':
+      case "AB_TEST":
         // TODO: lógica de A/B testing activo
-        logger.info({ jobId: job.id }, 'Procesando job AB_TEST (A/B testing TODO)');
+        logger.info(
+          { jobId: job.id },
+          "Procesando job AB_TEST (A/B testing TODO)"
+        );
         await queries.setJobResult(job.id);
         break;
 
       default:
         // No deberíamos llegar aquí, pero por si acaso:
-        logger.warn({ jobId: job.id, type: job.type }, 'Tipo de job desconocido, marcando FAILED');
+        logger.warn(
+          { jobId: job.id, type: job.type },
+          "Tipo de job desconocido, marcando FAILED"
+        );
         await queries.setJobFailed(job.id, `Unknown job type: ${job.type}`);
         break;
     }
 
-    logger.info({ jobId: job.id, type: job.type }, '✅ Job completado');
+    logger.info({ jobId: job.id, type: job.type }, "✅ Job completado");
   } catch (err: any) {
     logger.error(
       {
         jobId: job.id,
         error: err?.message ?? String(err),
       },
-      '❌ Error procesando job',
+      "❌ Error procesando job"
     );
 
     await queries.setJobFailed(
       job.id,
-      err instanceof Error ? err.message : 'Unknown error while processing job',
+      err instanceof Error ? err.message : "Unknown error while processing job"
     );
   }
 }
 
 export async function startWorker() {
-  logger.info('[worker] started');
+  logger.info("[worker] started");
 
   const loop = async () => {
     try {
@@ -73,7 +83,7 @@ export async function startWorker() {
     } catch (err: any) {
       logger.error(
         { error: err?.message ?? String(err) },
-        '❌ Error en el loop del worker',
+        "❌ Error en el loop del worker"
       );
     }
   };
