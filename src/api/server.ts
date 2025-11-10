@@ -164,7 +164,7 @@ app.post('/internal/enqueue', validateInternalSecret, async (req: Request, res: 
       });
     }
 
-    // 🎯 Insertar directamente en job_queue usando el schema actual
+    // 🎯 Crear el job en la cola directamente con Supabase
     const payload = metadata || { trigger: 'api' };
 
     const { data, error } = await supabase
@@ -172,7 +172,7 @@ app.post('/internal/enqueue', validateInternalSecret, async (req: Request, res: 
       .insert({
         type,
         payload,          // jsonb
-        status: 'PENDING' // nuestro enum job_status
+        status: 'PENDING' // enum job_status
       } as any)
       .select()
       .maybeSingle();
@@ -216,6 +216,7 @@ app.post('/internal/enqueue', validateInternalSecret, async (req: Request, res: 
     });
   }
 });
+
 
 // ============================================================================
 // Internal Endpoint: Get Job Status (protegido)
