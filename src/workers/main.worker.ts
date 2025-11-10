@@ -1,7 +1,7 @@
-// src/workers/main.worker.ts 
+// src/workers/main.worker.ts
 // Worker principal: consume job_queue en Supabase y procesa jobs del agente
 
-import { queries, Job } from "../db/queries.js";
+import { queries, Job } from "../db/queries.js";      // 👈 volvemos a tu ruta original
 import { logger } from "../utils/logger.js";
 import { runCreatePostPipeline } from "./createPost.pipeline.js";
 
@@ -13,22 +13,23 @@ async function handleJob(job: Job) {
 
     switch (job.type) {
       case "CREATE_POST": {
-  // 🚨 MARCA para saber que estamos en el código nuevo
-  logger.info({ jobId: job.id }, "[CREATE_POST] Usando pipeline NUEVO v2");
+        // MARCA clara para saber que usamos el worker nuevo
+        logger.info(
+          { jobId: job.id },
+          "[CREATE_POST] Usando pipeline NUEVO v2"
+        );
 
-  await runCreatePostPipeline({
-    id: String(job.id),
-    type: "CREATE_POST",
-    payload: (job.payload as any) ?? {},
-  });
+        await runCreatePostPipeline({
+          id: String(job.id),
+          type: "CREATE_POST",
+          payload: (job.payload as any) ?? {},
+        });
 
-  await queries.setJobResult(job.id);
-  break;
-}
-
+        await queries.setJobResult(job.id);
+        break;
+      }
 
       case "FEEDBACK_LOOP": {
-        // TODO: worker de feedback (leer métricas de Meta y actualizar perf_score)
         logger.info(
           { jobId: job.id },
           "Procesando job FEEDBACK_LOOP (feedback TODO)"
@@ -38,7 +39,6 @@ async function handleJob(job: Job) {
       }
 
       case "AB_TEST": {
-        // TODO: lógica de A/B testing activo
         logger.info(
           { jobId: job.id },
           "Procesando job AB_TEST (A/B testing TODO)"
