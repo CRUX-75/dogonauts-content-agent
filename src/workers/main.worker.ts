@@ -13,38 +13,46 @@ async function handleJob(job: Job) {
 
     switch (job.type) {
       case "CREATE_POST": {
+        // 🔥 Aquí llamamos al pipeline real
         await runCreatePostPipeline({
           id: String(job.id),
           type: "CREATE_POST",
           payload: (job.payload as any) ?? {},
         });
+
+        // Marca el job como completado en job_queue
         await queries.setJobResult(job.id);
         break;
       }
 
-      case "FEEDBACK_LOOP":
+      case "FEEDBACK_LOOP": {
+        // TODO: worker de feedback (leer métricas de Meta y actualizar perf_score)
         logger.info(
           { jobId: job.id },
           "Procesando job FEEDBACK_LOOP (feedback TODO)"
         );
         await queries.setJobResult(job.id);
         break;
+      }
 
-      case "AB_TEST":
+      case "AB_TEST": {
+        // TODO: lógica de A/B testing activo
         logger.info(
           { jobId: job.id },
           "Procesando job AB_TEST (A/B testing TODO)"
         );
         await queries.setJobResult(job.id);
         break;
+      }
 
-      default:
+      default: {
         logger.warn(
           { jobId: job.id, type: job.type },
           "Tipo de job desconocido, marcando FAILED"
         );
         await queries.setJobFailed(job.id, `Unknown job type: ${job.type}`);
         break;
+      }
     }
 
     logger.info({ jobId: job.id, type: job.type }, "✅ Job completado");
