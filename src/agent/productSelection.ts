@@ -17,10 +17,11 @@ export interface ProductRow {
 export async function chooseProductForCreatePost(
   epsilon: number = DEFAULT_EPSILON
 ): Promise<ProductRow> {
-  // 1) Candidatos: activos + con stock (ajusta campos a tu schema real)
+  // 1) Candidatos: activos + con stock
+  //    ⚠️ IMPORTANTE: no usamos 'name' en el select porque en la tabla no existe.
   const { data: products, error: prodError } = await supabase
     .from("products" as any)
-    .select("id, name, description, price, category, brand, is_active, stock")
+    .select("*") // <- aquí antes estaba: "id, name, description, price, category, brand, is_active, stock"
     .eq("is_active", true)
     .gt("stock", 0)
     .limit(500);
@@ -35,7 +36,7 @@ export async function chooseProductForCreatePost(
     now.getTime() - PRODUCT_COOLDOWN_DAYS * 24 * 60 * 60 * 1000
   ).toISOString();
 
-    // 2) Últimos posts recientes por producto (para cooldown)
+  // 2) Últimos posts recientes por producto (para cooldown)
   const { data: lastPosts, error: postsError } = await supabase
     .from("generated_posts" as any)
     .select("product_id, created_at")
@@ -65,6 +66,22 @@ export async function chooseProductForCreatePost(
     perfMap.set(Number(row.product_id), Number(row.perf_score) || 0);
   });
 
+  // helper para sacar un "nombre" decente aunque la tabla no tenga 'name'
+  const toProductRow = (p: any): ProductRow => {
+    const fallbackName =
+      p.name ?? p.title ?? p.product_title ?? p.handle ?? "Dogonauts Produkt";
+
+    return {
+      id: Number(p.id),
+      name: String(fallbackName),
+      description: p.description ?? undefined,
+      price: p.price ?? undefined,
+      category: p.category ?? undefined,
+      brand: p.brand ?? undefined,
+      perf_score: perfMap.get(Number(p.id)) ?? 0,
+    };
+  };
+
   // 4) Aplicar cooldown + perf_score
   let candidates: ProductRow[] = (products as any[]).flatMap((p) => {
     const id = Number(p.id);
@@ -73,30 +90,12 @@ export async function chooseProductForCreatePost(
       // tuvo post en ventana de cooldown → lo saltamos
       return [];
     }
-    return [
-      {
-        id,
-        name: String(p.name),
-        description: p.description ?? undefined,
-        price: p.price ?? undefined,
-        category: p.category ?? undefined,
-        brand: p.brand ?? undefined,
-        perf_score: perfMap.get(id) ?? 0,
-      },
-    ];
+    return [toProductRow(p)];
   });
 
   // si todos están en cooldown, usamos el set completo
   if (candidates.length === 0) {
-    candidates = (products as any[]).map((p) => ({
-      id: Number(p.id),
-      name: String(p.name),
-      description: p.description ?? undefined,
-      price: p.price ?? undefined,
-      category: p.category ?? undefined,
-      brand: p.brand ?? undefined,
-      perf_score: perfMap.get(Number(p.id)) ?? 0,
-    }));
+    candidates = (products as any[]).map((p) => toProductRow(p));
   }
 
   // 5) Epsilon-Greedy
