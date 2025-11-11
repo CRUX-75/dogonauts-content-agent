@@ -367,11 +367,11 @@ export function startServer(port: number = 3000): Promise<void> {
         logger.info(`🚀 API Server escuchando en puerto ${port}`);
         logger.info(`📍 Health check: http://localhost:${port}/health`);
         logger.info(`📊 Metrics: http://localhost:${port}/metrics`);
-        logger.info(`🧱 API build tag: enqueue-debug-2025-11-10-1`);
+        logger.info({version: '1.1.0',buildTag: process.env.BUILD_TAG ?? 'dev-local',}, '🧱 Content Agent iniciado');
         resolve();
       });
 
-      server.on('error', (error) => {
+        server.on('error', (error) => {
         logger.error('Error al iniciar servidor:', error);
         reject(error);
       });

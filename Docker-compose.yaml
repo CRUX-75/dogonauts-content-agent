@@ -2,7 +2,7 @@ services:
   # ============================================================================
   # content-creator-agent (Node.js Worker + API)
   # ============================================================================
-  dogonauts-agent:
+  content-creator-agent:
     build:
       context: .
       dockerfile: Dockerfile
@@ -61,10 +61,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: "1.0"
           memory: 1G
         reservations:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 512M
 
   # ============================================================================
@@ -87,7 +87,16 @@ services:
       N8N_PORT: 5678
       N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
       WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678}
-      
+
+      # Proxy / red (para el error X-Forwarded-For)
+      N8N_PROXY_HOPS: 1
+
+      # Opcionales pero recomendados (limpian los otros warnings)
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_RUNNERS_ENABLED: "true"
+      DB_SQLITE_POOL_SIZE: 5
+      N8N_GIT_NODE_DISABLE_BARE_REPOS: "true"
+
       # Timezone
       GENERIC_TIMEZONE: Europe/Berlin
       TZ: Europe/Berlin
