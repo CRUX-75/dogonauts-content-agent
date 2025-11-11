@@ -1,12 +1,12 @@
 services:
   # ============================================================================
-  # Dogonauts Content Agent (Node.js Worker + API)
+  # content-creator-agent (Node.js Worker + API)
   # ============================================================================
   dogonauts-agent:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: dogonauts-agent
+    container_name: content-creator-agent
     restart: unless-stopped
     
     # Variables de entorno
@@ -94,7 +94,7 @@ services:
       
       # Variables personalizadas (para usar en workflows)
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
-      DOGONAUTS_API_URL: http://dogonauts-agent:3000
+      DOGONAUTS_API_URL: http://content-creator-agent:3000
     
     ports:
       - "5678:5678"
@@ -106,7 +106,7 @@ services:
       - dogonauts-network
     
     depends_on:
-      dogonauts-agent:
+      content-creator-agent:
         condition: service_healthy
 
 # ============================================================================
