@@ -17,18 +17,16 @@ export interface ProductRow {
 export async function chooseProductForCreatePost(
   epsilon: number = DEFAULT_EPSILON
 ): Promise<ProductRow> {
-  // 1) Candidatos: activos + con stock
-  //    ⚠️ IMPORTANTE: no usamos 'name' en el select porque en la tabla no existe.
+  // 1) Candidatos: productos "Im Verkauf"
   const { data: products, error: prodError } = await supabase
     .from("products" as any)
-    .select("*") // <- aquí antes estaba: "id, name, description, price, category, brand, is_active, stock"
-    .eq("is_active", true)
-    .gt("stock", 0)
+    .select("*")
+    .eq("verkaufsstatus", "Im Verkauf") // 👈 en vez de is_active/stock
     .limit(500);
 
   if (prodError) throw prodError;
   if (!products || products.length === 0) {
-    throw new Error("No hay productos activos con stock.");
+    throw new Error("No hay productos 'Im Verkauf' en la tabla products.");
   }
 
   const now = new Date();
@@ -48,7 +46,6 @@ export async function chooseProductForCreatePost(
   const recentMap = new Map<number, string>();
   (lastPosts || []).forEach((row: any) => {
     const pid = Number(row.product_id);
-    // al estar ordenado desc, el primer registro que veamos es el más reciente
     if (!recentMap.has(pid)) {
       recentMap.set(pid, String(row.created_at));
     }
@@ -66,10 +63,14 @@ export async function chooseProductForCreatePost(
     perfMap.set(Number(row.product_id), Number(row.perf_score) || 0);
   });
 
-  // helper para sacar un "nombre" decente aunque la tabla no tenga 'name'
+  // Helper para construir ProductRow usando campos reales (artikelnummer/suchnummer)
   const toProductRow = (p: any): ProductRow => {
     const fallbackName =
-      p.name ?? p.title ?? p.product_title ?? p.handle ?? "Dogonauts Produkt";
+      p.name ??
+      p.suchnummer ??
+      p.artikelnummer ??
+      p.product_title ??
+      "Dogonauts Produkt";
 
     return {
       id: Number(p.id),
@@ -82,13 +83,12 @@ export async function chooseProductForCreatePost(
     };
   };
 
-  // 4) Aplicar cooldown + perf_score
+  // 4) Aplicar cooldown
   let candidates: ProductRow[] = (products as any[]).flatMap((p) => {
     const id = Number(p.id);
     const lastCreatedAt = recentMap.get(id);
     if (lastCreatedAt) {
-      // tuvo post en ventana de cooldown → lo saltamos
-      return [];
+      return []; // en cooldown → lo saltamos
     }
     return [toProductRow(p)];
   });
@@ -101,14 +101,12 @@ export async function chooseProductForCreatePost(
   // 5) Epsilon-Greedy
   const r = Math.random();
   if (r < epsilon) {
-    // EXPLORAR
     const randomIndex = Math.floor(Math.random() * candidates.length);
     const chosen = candidates[randomIndex];
     console.log("[PRODUCT] EXPLORE →", chosen.id, chosen.name);
     return chosen;
   }
 
-  // EXPLOTAR (mayor perf_score)
   const sorted = [...candidates].sort(
     (a, b) => (b.perf_score ?? 0) - (a.perf_score ?? 0)
   );

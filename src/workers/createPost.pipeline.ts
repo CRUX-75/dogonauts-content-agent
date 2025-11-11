@@ -1,8 +1,12 @@
 // src/workers/createPost.pipeline.ts
-// MODO TEST: pipeline mínimo para verificar que el worker + Supabase insertan bien en generated_posts
+// Pipeline CREATE_POST v2: elegir producto real + guardar DRAFT con caption estático
 
 import { supabase } from "../db/supabase.js";
 import { logger } from "../utils/logger.js";
+import {
+  chooseProductForCreatePost,
+  type ProductRow,
+} from "../agent/productSelection.js";
 
 type CreatePostPayload = {
   channel_target?: "IG" | "FB" | "BOTH";
@@ -17,37 +21,59 @@ export async function runCreatePostPipeline(job: {
 
   logger.info(
     { jobId: job.id, channelTarget },
-    "🚧 runCreatePostPipeline() TEST MODE"
+    "[CREATE_POST] Pipeline v2 (product + static caption)"
   );
 
-  // 👇 Usa un ID REAL de la tabla products (int8)
-  const TEST_PRODUCT_ID = 15751; // este id existe en tu captura
+  // 1) Elegir producto con Epsilon-Greedy adaptado al schema real
+  const product: ProductRow = await chooseProductForCreatePost();
+  logger.info(
+    { jobId: job.id, productId: product.id, productName: product.name },
+    "[CREATE_POST] Producto elegido"
+  );
 
-  const { error } = await supabase
+  // 2) Caption estático sencillo (sin OpenAI todavía)
+  const baseCaption = `AUTOTEST: Neues Dogonauts-Posting für Produkt ${product.name}.`;
+  const captionIG = `${baseCaption} #dogonauts #orchideen #test`;
+  const captionFB = baseCaption;
+
+  const creativeBrief = `Test-Post für Produkt "${product.name}" (ID ${product.id}). Nur zum Prüfen des Pipelines.`;
+  const imagePrompt = `Simple test image prompt for product ${product.name}.`;
+
+  // 3) Insertar DRAFT en generated_posts
+  const { data, error } = await supabase
     .from("generated_posts" as any)
     .insert({
-      product_id: TEST_PRODUCT_ID,
+      product_id: product.id,
       channel_target: channelTarget,
-      caption_ig: "TEST CAPTION IG",
-      caption_fb: "TEST CAPTION FB",
-      creative_brief: "TEST BRIEF",
-      image_prompt: "TEST IMAGE PROMPT",
+      caption_ig: captionIG,
+      caption_fb: captionFB,
+      creative_brief: creativeBrief,
+      image_prompt: imagePrompt,
       tone: "test",
-      style: "test-style",
+      style: "test-static",
       status: "DRAFT",
       job_id: job.id,
-    } as any);
+    } as any)
+    .select()
+    .maybeSingle();
 
   if (error) {
     logger.error(
-      { jobId: job.id, error: error.message ?? error },
-      "❌ Error insertando generated_posts TEST"
+      { jobId: job.id, error },
+      "[CREATE_POST] Error guardando DRAFT (v2)"
     );
     throw error;
   }
 
   logger.info(
-    { jobId: job.id },
-    "✅ generated_posts TEST creado correctamente (TEST MODE)"
+    {
+      jobId: job.id,
+      generated_post_id: data?.id,
+      productId: product.id,
+      productName: product.name,
+    },
+    "[CREATE_POST] DRAFT creado correctamente (v2, static caption)"
   );
+
+  return data;
 }
