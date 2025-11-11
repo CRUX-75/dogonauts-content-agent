@@ -1,4 +1,6 @@
 // src/db/queries.ts
+// Helpers de acceso a la tabla job_queue en Supabase
+
 import { supabase } from "./supabase.js";
 
 export type JobStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
@@ -6,16 +8,18 @@ export type JobStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
 export type JobType = "CREATE_POST" | "FEEDBACK_LOOP" | "AB_TEST";
 
 export type Job = {
-  id: number;
+  id: string;                // uuid en la tabla
   type: JobType | null;
   payload: any;
   status: JobStatus;
-  error_message?: string | null;
+  error?: string | null;     // 👈 columna "error" en Supabase
   attempts: number;
   created_at: string;
   started_at?: string | null;
+  finished_at?: string | null;   // existe en la tabla aunque no la usemos aún
   completed_at?: string | null;
   source?: string | null;
+  priority?: number | null;      // columna priority int4
 };
 
 export const queries = {
@@ -28,6 +32,7 @@ export const queries = {
         .from("job_queue")
         .select("id")
         .limit(1);
+
       return !error;
     } catch {
       return false;
@@ -78,12 +83,14 @@ export const queries = {
     status?: JobStatus;
     source?: string;
     payload?: any;
+    priority?: number;
   }): Promise<Job> {
     const insertData = {
       type: input.type,
       status: input.status ?? "PENDING",
       source: input.source ?? "api",
       payload: input.payload ?? {}, // jsonb NOT NULL
+      priority: input.priority ?? 0,
     };
 
     const { data, error } = await supabase
@@ -120,7 +127,9 @@ export const queries = {
   ) {
     const updateData: any = { status };
 
-    if (errorMsg) updateData.error_message = errorMsg;
+    if (errorMsg) {
+      updateData.error = errorMsg; // 👈 usa la columna error
+    }
 
     if (status === "RUNNING") {
       updateData.started_at = new Date().toISOString();
@@ -139,9 +148,9 @@ export const queries = {
   },
 
   // -------------------------------------------------------------------------
-  // Worker: encolar desde código (si quieres usar este helper)
+  // Worker: encolar desde código (helper opcional)
   // -------------------------------------------------------------------------
-  async enqueueJob(type: JobType, payload: unknown) {
+  async enqueueJob(type: JobType, payload: unknown, priority = 0) {
     const { data, error } = await supabase
       .from("job_queue")
       .insert({
@@ -149,6 +158,7 @@ export const queries = {
         status: "PENDING" as JobStatus,
         source: "worker",
         payload,
+        priority,
       })
       .select()
       .single();
@@ -161,7 +171,7 @@ export const queries = {
   // Worker: reclamar siguiente job PENDING
   // -------------------------------------------------------------------------
   async getAndClaimJob(): Promise<Job | null> {
-    // 1) Leer el más viejo PENDING
+    // 1) Leer el más viejo PENDING (puedes añadir order por priority si quieres)
     const { data, error } = await supabase
       .from("job_queue")
       .select("*")
@@ -173,7 +183,7 @@ export const queries = {
     if (error) throw error;
     if (!data) return null;
 
-    // 2) Marcarlo como RUNNING
+    // 2) Marcarlo como RUNNING y subir attempts
     const { data: claimed, error: updErr } = await supabase
       .from("job_queue")
       .update({
@@ -212,7 +222,7 @@ export const queries = {
       .from("job_queue")
       .update({
         status: "FAILED",
-        error_message: reason,
+        error: reason, // 👈 guarda el mensaje en la columna error
         completed_at: new Date().toISOString(),
       })
       .eq("id", id);
