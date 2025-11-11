@@ -20,10 +20,8 @@ export async function runCreatePostPipeline(job: {
     "🚧 runCreatePostPipeline() TEST MODE"
   );
 
-  // ⚠️ IMPORTANTE:
-  // product_id tiene que ser un ID que EXISTE en tu tabla products.
-  // Si usas uuid, copia uno real de Supabase y pégalo aquí.
-  const TEST_PRODUCT_ID = "PON_AQUI_UN_PRODUCT_ID_REAL"; // <- cambia esto
+  // 👇 Usa un ID REAL de la tabla products (int8)
+  const TEST_PRODUCT_ID = 15751; // este id existe en tu captura
 
   const { error } = await supabase
     .from("generated_posts" as any)
