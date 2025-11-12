@@ -125,6 +125,13 @@ export async function runCreatePostPipeline(job: {
 
   const imagePrompt = `High quality product photo of "${product.name}" with a ${style} background, soft shadows, Dogonauts space-themed branding, Instagram feed ready, square format.`;
 
+  const rawAiResponse = JSON.stringify({
+    headline,
+    caption,
+    style,
+    product_id: product.id,
+  });
+
   // 4) Insertar DRAFT en generated_posts
   const { data, error } = await supabase
     .from("generated_posts" as any)
@@ -139,6 +146,7 @@ export async function runCreatePostPipeline(job: {
       style,
       status: "DRAFT",
       job_id: job.id,
+      raw_ai_response: rawAiResponse,
     } as any)
     .select()
     .maybeSingle();
