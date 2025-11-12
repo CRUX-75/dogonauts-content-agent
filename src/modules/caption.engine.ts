@@ -89,7 +89,7 @@ async function callOpenAIJSON(
   system: string,
   user: string
 ): Promise<CaptionResult> {
-  // 💡 FIX: La API exige que el prompt mencione 'json' si usamos response_format = json_object
+  // 💡 FIX 1: La API exige que el prompt mencione 'json' si usamos response_format = json_object
   const systemWithJson = `${system}\n\nEres un generador de textos que SIEMPRE responde en formato json. Responde únicamente con un objeto json válido, sin texto adicional fuera del json.`;
   const userWithJson = `${user}\n\nDevuelve únicamente un objeto json con las claves \"headline\" y \"caption\". No añadas explicaciones ni texto fuera del json.`;
 
@@ -128,13 +128,40 @@ async function callOpenAIJSON(
     throw new Error("Invalid JSON from GPT");
   }
 
-  if (!parsed.headline || !parsed.caption) {
-    throw new Error("GPT response missing required fields (headline, caption)");
+  // 💡 FIX 2: relajamos la validación y damos fallbacks
+  let headline: string =
+    (parsed && (parsed.headline ?? parsed.title)) ?? "";
+  let caption: string =
+    (parsed && (parsed.caption ?? parsed.text ?? parsed.body)) ?? "";
+
+  // Si no vienen las claves esperadas, hacemos fallback
+  if (!headline && !caption) {
+    // última bala: usar el contenido crudo como caption
+    if (typeof content === "string") {
+      caption = content;
+    } else {
+      try {
+        caption = JSON.stringify(parsed);
+      } catch {
+        caption = "[no caption]";
+      }
+    }
+    headline = "Dogonauts Post";
+    log.warn?.("GPT response missing headline/caption, using fallback", {
+      parsed,
+    });
+  }
+
+  if (!headline) {
+    headline = "Dogonauts Post";
+  }
+  if (!caption) {
+    caption = headline;
   }
 
   return {
-    headline: String(parsed.headline),
-    caption: String(parsed.caption),
+    headline: String(headline),
+    caption: String(caption),
   };
 }
 
