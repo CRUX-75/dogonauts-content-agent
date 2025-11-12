@@ -6,9 +6,11 @@ import { logger } from "../utils/logger.js";
 
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN ?? "";
 const IG_ACCOUNT_ID = process.env.IG_ACCOUNT_ID ?? "";
-const META_GRAPH_VERSION = process.env.META_GRAPH_VERSION ?? "v19.0";
+const META_GRAPH_VERSION = process.env.META_GRAPH_VERSION ?? "v24.0";
 const META_PUBLISH_DRY_RUN = process.env.META_PUBLISH_DRY_RUN === "true";
 const META_DEFAULT_IMAGE_URL = process.env.META_DEFAULT_IMAGE_URL ?? "";
+const FB_PAGE_ID = process.env.FB_PAGE_ID ?? "";
+
 
 type PublishPostPayload = {
   generated_post_id: string;
