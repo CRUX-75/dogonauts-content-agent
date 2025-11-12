@@ -85,7 +85,14 @@ if (!OPENAI_API_KEY) {
   );
 }
 
-async function callOpenAIJSON(system: string, user: string): Promise<CaptionResult> {
+async function callOpenAIJSON(
+  system: string,
+  user: string
+): Promise<CaptionResult> {
+  // 💡 FIX: La API exige que el prompt mencione 'json' si usamos response_format = json_object
+  const systemWithJson = `${system}\n\nEres un generador de textos que SIEMPRE responde en formato json. Responde únicamente con un objeto json válido, sin texto adicional fuera del json.`;
+  const userWithJson = `${user}\n\nDevuelve únicamente un objeto json con las claves \"headline\" y \"caption\". No añadas explicaciones ni texto fuera del json.`;
+
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -95,8 +102,8 @@ async function callOpenAIJSON(system: string, user: string): Promise<CaptionResu
     body: JSON.stringify({
       model: OPENAI_MODEL,
       messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
+        { role: "system", content: systemWithJson },
+        { role: "user", content: userWithJson },
       ],
       temperature: 0.85,
       response_format: { type: "json_object" },
@@ -115,7 +122,8 @@ async function callOpenAIJSON(system: string, user: string): Promise<CaptionResu
 
   let parsed: any;
   try {
-    parsed = JSON.parse(content);
+    // response_format=json_object suele devolver un string con el json dentro
+    parsed = typeof content === "string" ? JSON.parse(content) : content;
   } catch {
     throw new Error("Invalid JSON from GPT");
   }
