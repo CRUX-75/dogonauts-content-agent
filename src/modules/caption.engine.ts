@@ -5,7 +5,6 @@ import { supabase } from "../db/supabase.js";
 import * as LoggerModule from "../utils/logger.js";
 import { buildFinalPrompt } from "../prompts/brand-identity.js";
 
-// logger como any para no pelear con la firma de tipos
 const log: any = (LoggerModule as any).logger ?? console;
 
 interface Product {
@@ -22,7 +21,7 @@ export interface CaptionResult {
   caption: string;
 }
 
-// ---------- Helpers de caché en Supabase (tipados suaves) ----------
+// ---------- Cache helpers ----------
 async function getCachedCaption(
   productId: number,
   style: string
@@ -75,7 +74,7 @@ async function setCachedCaption(
   }
 }
 
-// ---------- Llamada directa a OpenAI ----------
+// ---------- OpenAI ----------
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
 
@@ -85,13 +84,22 @@ if (!OPENAI_API_KEY) {
   );
 }
 
+function fallbackFrom(product: Product, style: string): CaptionResult {
+  const safeName = product?.name ?? "Dogonauts Produkt";
+  const headline = `Neues ${style} Highlight: ${safeName}`;
+  const caption = `Entdecke ${safeName} – kuratiert im Stil „${style}“. #dogonauts`;
+  return { headline, caption };
+}
+
 async function callOpenAIJSON(
   system: string,
-  user: string
+  user: string,
+  product: Product,
+  style: string
 ): Promise<CaptionResult> {
-  // 💡 FIX 1: La API exige que el prompt mencione 'json' si usamos response_format = json_object
-  const systemWithJson = `${system}\n\nEres un generador de textos que SIEMPRE responde en formato json. Responde únicamente con un objeto json válido, sin texto adicional fuera del json.`;
-  const userWithJson = `${user}\n\nDevuelve únicamente un objeto json con las claves \"headline\" y \"caption\". No añadas explicaciones ni texto fuera del json.`;
+  // 💡 Instrucciones explícitas para JSON (para response_format=json_object)
+  const systemWithJson = `${system}\n\nRespondes SIEMPRE en formato json. Devuelves únicamente un objeto json válido, sin texto extra fuera del json.`;
+  const userWithJson = `${user}\n\nDevuelve únicamente un objeto json con las claves "headline" y "caption". No añadas explicaciones ni texto fuera del json.`;
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -118,56 +126,39 @@ async function callOpenAIJSON(
 
   const json: any = await res.json();
   const content = json?.choices?.[0]?.message?.content;
-  if (!content) throw new Error("GPT returned empty content");
 
+  // content puede ser string con JSON o un objeto
   let parsed: any;
   try {
-    // response_format=json_object suele devolver un string con el json dentro
     parsed = typeof content === "string" ? JSON.parse(content) : content;
   } catch {
-    throw new Error("Invalid JSON from GPT");
+    log.warn?.(
+      "OpenAI returned non-JSON despite json_object; using fallback",
+      { content }
+    );
+    return fallbackFrom(product, style);
   }
 
-  // 💡 FIX 2: relajamos la validación y damos fallbacks
-  let headline: string =
-    (parsed && (parsed.headline ?? parsed.title)) ?? "";
-  let caption: string =
-    (parsed && (parsed.caption ?? parsed.text ?? parsed.body)) ?? "";
+  // Normalizar campos
+  let headline = String(parsed?.headline ?? parsed?.title ?? "").trim();
+  let caption = String(
+    parsed?.caption ?? parsed?.text ?? parsed?.body ?? ""
+  ).trim();
 
-  // Si no vienen las claves esperadas, hacemos fallback
   if (!headline && !caption) {
-    // última bala: usar el contenido crudo como caption
-    if (typeof content === "string") {
-      caption = content;
-    } else {
-      try {
-        caption = JSON.stringify(parsed);
-      } catch {
-        caption = "[no caption]";
-      }
-    }
-    headline = "Dogonauts Post";
     log.warn?.("GPT response missing headline/caption, using fallback", {
       parsed,
     });
+    return fallbackFrom(product, style);
   }
 
-  if (!headline) {
-    headline = "Dogonauts Post";
-  }
-  if (!caption) {
-    caption = headline;
-  }
+  if (!headline) headline = "Dogonauts Post";
+  if (!caption) caption = headline;
 
-  return {
-    headline: String(headline),
-    caption: String(caption),
-  };
+  return { headline, caption };
 }
 
-// ============================================================================
-// API principal
-// ============================================================================
+// ---------- API principal ----------
 export async function generate(
   product: Product,
   style: string
@@ -183,13 +174,15 @@ export async function generate(
     }
   }
 
-  // 2) Prompt (debe devolver { system, user })
+  // 2) Prompt
   const prompt: any = buildFinalPrompt(product as any, style);
 
   // 3) OpenAI
   const result = await callOpenAIJSON(
     String(prompt.system ?? ""),
-    String(prompt.user ?? "")
+    String(prompt.user ?? ""),
+    product,
+    style
   );
 
   // 4) Métricas
@@ -202,13 +195,15 @@ export async function generate(
 
   // 5) Cache (best-effort)
   if (process.env.DISABLE_CACHE !== "true") {
-    setCachedCaption(product.id, style, result).catch((e: any) =>
+    try {
+      await setCachedCaption(product.id, style, result);
+    } catch (e: any) {
       log.warn?.("Failed to cache caption (non-critical)", {
         product_id: product.id,
         style,
         error: e?.message,
-      })
-    );
+      });
+    }
   }
 
   return result;

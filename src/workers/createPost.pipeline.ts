@@ -14,12 +14,54 @@ type CreatePostPayload = {
   channel_target?: "IG" | "FB" | "BOTH";
 };
 
+// Normaliza cualquier cosa que nos devuelva caption-engine (objeto, string JSON, etc.)
+// y garantiza que SIEMPRE haya headline y caption no vacíos.
+function normalizeCaption(
+  raw: any,
+  productName: string,
+  style: string
+): { headline: string; caption: string } {
+  let res: any = raw;
+
+  // Si viene un string, intentamos parsearlo como JSON
+  if (typeof res === "string") {
+    try {
+      const parsed = JSON.parse(res);
+      res = {
+        headline: parsed?.headline,
+        caption: parsed?.caption,
+      };
+    } catch {
+      // No es JSON, lo tratamos como caption crudo
+      res = { headline: "", caption: String(raw) };
+    }
+  }
+
+  let headline = String(res?.headline ?? "").trim();
+  let caption = String(res?.caption ?? "").trim();
+
+  // Si ambos vienen vacíos, usamos un fallback razonable
+  if (!headline && !caption) {
+    headline = `Neues ${style} Highlight: ${productName}`;
+    caption = `Entdecke ${productName} – kuratiert im Stil „${style}“. #dogonauts`;
+  } else {
+    if (!headline) {
+      headline = "Dogonauts Post";
+    }
+    if (!caption) {
+      caption = headline;
+    }
+  }
+
+  return { headline, caption };
+}
+
 export async function runCreatePostPipeline(job: {
   id: string;
   type: "CREATE_POST";
   payload: CreatePostPayload | string | null;
 }) {
-  // Payload puede venir como jsonb (objeto) o como string JSON desde job_queue
+  // Payload puede venir como objeto o como string JSON desde job_queue (n8n)
   let payload: CreatePostPayload = {};
 
   if (typeof job.payload === "string") {
@@ -57,7 +99,7 @@ export async function runCreatePostPipeline(job: {
   );
 
   // 3) Caption usando caption-engine (con cache en Supabase)
-  const captionRes = await generateCaption(
+  const rawCaptionRes = await generateCaption(
     {
       id: product.id,
       name: product.name,
@@ -69,10 +111,17 @@ export async function runCreatePostPipeline(job: {
     style
   );
 
-  const captionIG = captionRes.caption;
-  const captionFB = captionRes.caption; // más adelante se puede diferenciar por canal
+  // Normalizamos por si viene raro (objeto, string JSON, vacío, etc.)
+  const { headline, caption } = normalizeCaption(
+    rawCaptionRes as any,
+    product.name,
+    style
+  );
 
-  const creativeBrief = `Visual basierend auf dem Stil "${style}": Produkt "${product.name}" im Fokus, klare Lesbarkeit des Headlines "${captionRes.headline}", dezentes Dogonauts-Space-Branding.`;
+  const captionIG = caption;
+  const captionFB = caption; // más adelante se puede diferenciar por canal
+
+  const creativeBrief = `Visual basierend auf dem Stil "${style}": Produkt "${product.name}" im Fokus, klare Lesbarkeit des Headlines "${headline}", dezentes Dogonauts-Space-Branding.`;
 
   const imagePrompt = `High quality product photo of "${product.name}" with a ${style} background, soft shadows, Dogonauts space-themed branding, Instagram feed ready, square format.`;
 
@@ -86,7 +135,7 @@ export async function runCreatePostPipeline(job: {
       caption_fb: captionFB,
       creative_brief: creativeBrief,
       image_prompt: imagePrompt,
-      tone: "funny", // por ahora fijo; luego lo podrías mapear al style
+      tone: "funny", // por ahora fijo; luego lo puedes ligar a style
       style,
       status: "DRAFT",
       job_id: job.id,
