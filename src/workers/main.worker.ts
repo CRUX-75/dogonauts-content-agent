@@ -1,9 +1,11 @@
 // src/workers/main.worker.ts
 // Worker principal: consume job_queue en Supabase y procesa jobs del agente
 
-import { queries, Job } from "../db/queries.js";      // 👈 volvemos a tu ruta original
+import { queries, Job } from "../db/queries.js";
 import { logger } from "../utils/logger.js";
 import { runCreatePostPipeline } from "./createPost.pipeline.js";
+import { runPublishPostPipeline } from "./publishPost.pipeline.js";
+import { runFeedbackLoopPipeline } from "./feedbackLoop.pipeline.js";
 
 const POLL_INTERVAL_MS = 15_000; // 15s
 
@@ -13,10 +15,9 @@ async function handleJob(job: Job) {
 
     switch (job.type) {
       case "CREATE_POST": {
-        // MARCA clara para saber que usamos el worker nuevo
         logger.info(
           { jobId: job.id },
-          "[CREATE_POST] Usando pipeline NUEVO v2"
+          "[CREATE_POST] Usando pipeline v3 (product + style + caption-engine)"
         );
 
         await runCreatePostPipeline({
@@ -29,11 +30,34 @@ async function handleJob(job: Job) {
         break;
       }
 
+      case "PUBLISH_POST": {
+        logger.info(
+          { jobId: job.id },
+          "[PUBLISH_POST] Ejecutando pipeline de publicación (stub)"
+        );
+
+        await runPublishPostPipeline({
+          id: String(job.id),
+          type: "PUBLISH_POST",
+          payload: (job.payload as any) ?? {},
+        });
+
+        await queries.setJobResult(job.id);
+        break;
+      }
+
       case "FEEDBACK_LOOP": {
         logger.info(
           { jobId: job.id },
-          "Procesando job FEEDBACK_LOOP (feedback TODO)"
+          "[FEEDBACK_LOOP] Ejecutando pipeline de feedback (stub)"
         );
+
+        await runFeedbackLoopPipeline({
+          id: String(job.id),
+          type: "FEEDBACK_LOOP",
+          payload: (job.payload as any) ?? {},
+        });
+
         await queries.setJobResult(job.id);
         break;
       }
@@ -41,8 +65,10 @@ async function handleJob(job: Job) {
       case "AB_TEST": {
         logger.info(
           { jobId: job.id },
-          "Procesando job AB_TEST (A/B testing TODO)"
+          "[AB_TEST] Procesando job A/B testing (TODO)"
         );
+
+        // Aquí más adelante meterás el pipeline real de A/B testing
         await queries.setJobResult(job.id);
         break;
       }
