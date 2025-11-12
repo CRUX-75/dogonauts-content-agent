@@ -33,7 +33,7 @@ async function handleJob(job: Job) {
       case "PUBLISH_POST": {
         logger.info(
           { jobId: job.id },
-          "[PUBLISH_POST] Ejecutando pipeline de publicación (stub)"
+          "[PUBLISH_POST] Ejecutando pipeline de publicación"
         );
 
         await runPublishPostPipeline({
@@ -67,8 +67,7 @@ async function handleJob(job: Job) {
           { jobId: job.id },
           "[AB_TEST] Procesando job A/B testing (TODO)"
         );
-
-        // Aquí más adelante meterás el pipeline real de A/B testing
+        // Aquí meterás el pipeline de A/B testing más adelante
         await queries.setJobResult(job.id);
         break;
       }
