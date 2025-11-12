@@ -1,12 +1,14 @@
 // src/workers/createPost.pipeline.ts
-// Pipeline CREATE_POST v2: elegir producto real + guardar DRAFT con caption estático
+// Pipeline CREATE_POST: elegir producto + estilo + generar caption con caption-engine + guardar DRAFT
 
 import { supabase } from "../db/supabase.js";
 import { logger } from "../utils/logger.js";
+import { pickStyleWithEpsilonGreedy } from "../agent/styleSelection.js";
 import {
   chooseProductForCreatePost,
   type ProductRow,
 } from "../agent/productSelection.js";
+import { generateCaption } from "../modules/caption.engine.js";
 
 type CreatePostPayload = {
   channel_target?: "IG" | "FB" | "BOTH";
@@ -15,13 +17,26 @@ type CreatePostPayload = {
 export async function runCreatePostPipeline(job: {
   id: string;
   type: "CREATE_POST";
-  payload: CreatePostPayload;
+  payload: CreatePostPayload | string | null;
 }) {
-  const channelTarget = job.payload?.channel_target ?? "BOTH";
+  // Payload puede venir como jsonb (objeto) o como string JSON desde job_queue
+  let payload: CreatePostPayload = {};
+
+  if (typeof job.payload === "string") {
+    try {
+      payload = JSON.parse(job.payload) as CreatePostPayload;
+    } catch {
+      payload = {};
+    }
+  } else if (job.payload && typeof job.payload === "object") {
+    payload = job.payload as CreatePostPayload;
+  }
+
+  const channelTarget = payload.channel_target ?? "BOTH";
 
   logger.info(
     { jobId: job.id, channelTarget },
-    "[CREATE_POST] Pipeline v2 (product + static caption)"
+    "[CREATE_POST] Pipeline v3 (product + style + caption-engine)"
   );
 
   // 1) Elegir producto con Epsilon-Greedy adaptado al schema real
@@ -31,15 +46,37 @@ export async function runCreatePostPipeline(job: {
     "[CREATE_POST] Producto elegido"
   );
 
-  // 2) Caption estático sencillo (sin OpenAI todavía)
-  const baseCaption = `AUTOTEST: Neues Dogonauts-Posting für Produkt ${product.name}.`;
-  const captionIG = `${baseCaption} #dogonauts #orchideen #test`;
-  const captionFB = baseCaption;
+  // 2) Elegir estilo con Epsilon-Greedy
+  const primaryChannel =
+    channelTarget === "BOTH" ? "IG" : (channelTarget as "IG" | "FB");
 
-  const creativeBrief = `Test-Post für Produkt "${product.name}" (ID ${product.id}). Nur zum Prüfen des Pipelines.`;
-  const imagePrompt = `Simple test image prompt for product ${product.name}.`;
+  const style = await pickStyleWithEpsilonGreedy(primaryChannel);
+  logger.info(
+    { jobId: job.id, style, channel: primaryChannel },
+    "[CREATE_POST] Estilo elegido"
+  );
 
-  // 3) Insertar DRAFT en generated_posts
+  // 3) Caption usando caption-engine (con cache en Supabase)
+  const captionRes = await generateCaption(
+    {
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price ?? 0,
+      category: product.category,
+      brand: product.brand,
+    } as any,
+    style
+  );
+
+  const captionIG = captionRes.caption;
+  const captionFB = captionRes.caption; // más adelante se puede diferenciar por canal
+
+  const creativeBrief = `Visual basierend auf dem Stil "${style}": Produkt "${product.name}" im Fokus, klare Lesbarkeit des Headlines "${captionRes.headline}", dezentes Dogonauts-Space-Branding.`;
+
+  const imagePrompt = `High quality product photo of "${product.name}" with a ${style} background, soft shadows, Dogonauts space-themed branding, Instagram feed ready, square format.`;
+
+  // 4) Insertar DRAFT en generated_posts
   const { data, error } = await supabase
     .from("generated_posts" as any)
     .insert({
@@ -49,8 +86,8 @@ export async function runCreatePostPipeline(job: {
       caption_fb: captionFB,
       creative_brief: creativeBrief,
       image_prompt: imagePrompt,
-      tone: "test",
-      style: "test-static",
+      tone: "funny", // por ahora fijo; luego lo podrías mapear al style
+      style,
       status: "DRAFT",
       job_id: job.id,
     } as any)
@@ -60,7 +97,7 @@ export async function runCreatePostPipeline(job: {
   if (error) {
     logger.error(
       { jobId: job.id, error },
-      "[CREATE_POST] Error guardando DRAFT (v2)"
+      "[CREATE_POST] Error guardando DRAFT"
     );
     throw error;
   }
@@ -71,8 +108,9 @@ export async function runCreatePostPipeline(job: {
       generated_post_id: data?.id,
       productId: product.id,
       productName: product.name,
+      style,
     },
-    "[CREATE_POST] DRAFT creado correctamente (v2, static caption)"
+    "[CREATE_POST] DRAFT creado correctamente (v3)"
   );
 
   return data;
