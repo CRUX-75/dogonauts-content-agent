@@ -11,6 +11,16 @@ const META_PUBLISH_DRY_RUN = process.env.META_PUBLISH_DRY_RUN === "true";
 const META_DEFAULT_IMAGE_URL = process.env.META_DEFAULT_IMAGE_URL ?? "";
 const FB_PAGE_ID = process.env.FB_PAGE_ID ?? "";
 
+// Snapshot de configuración (sin loguear secretos)
+logger.info(
+  {
+    hasAccessToken: !!META_ACCESS_TOKEN,
+    hasIgAccountId: !!IG_ACCOUNT_ID,
+    hasDefaultImageUrl: !!META_DEFAULT_IMAGE_URL,
+    dryRunFlag: META_PUBLISH_DRY_RUN,
+  },
+  "[PUBLISH_POST] Config Meta cargada"
+);
 
 type PublishPostPayload = {
   generated_post_id: string;
@@ -20,31 +30,29 @@ type PublishPostPayload = {
 async function publishToInstagram(
   caption: string
 ): Promise<{ meta_post_id: string; dryRun: boolean }> {
+  // 0) Validar configuración obligatoria
   if (!META_ACCESS_TOKEN || !IG_ACCOUNT_ID) {
-    logger.warn(
+    logger.error(
       {
         hasAccessToken: !!META_ACCESS_TOKEN,
         hasIgAccountId: !!IG_ACCOUNT_ID,
       },
-      "[PUBLISH_POST] Configuración Meta incompleta, usando DRY_RUN"
+      "[PUBLISH_POST] Configuración Meta incompleta: falta ACCESS_TOKEN o IG_ACCOUNT_ID"
     );
-    return {
-      meta_post_id: "DRY_RUN_NO_CONFIG",
-      dryRun: true,
-    };
+    throw new Error(
+      "Meta config incompleta: falta META_ACCESS_TOKEN o IG_ACCOUNT_ID"
+    );
   }
 
   if (!META_DEFAULT_IMAGE_URL) {
-    logger.warn(
+    logger.error(
       {},
-      "[PUBLISH_POST] META_DEFAULT_IMAGE_URL vacío, usando DRY_RUN"
+      "[PUBLISH_POST] META_DEFAULT_IMAGE_URL vacío: no se puede publicar"
     );
-    return {
-      meta_post_id: "DRY_RUN_NO_IMAGE_URL",
-      dryRun: true,
-    };
+    throw new Error("META_DEFAULT_IMAGE_URL vacío; no se puede publicar en IG");
   }
 
+  // 1) DRY RUN explícito por flag
   if (META_PUBLISH_DRY_RUN) {
     logger.info(
       {},
@@ -56,7 +64,7 @@ async function publishToInstagram(
     };
   }
 
-  // 1) Crear media container
+  // 2) Crear media container
   const mediaUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/${IG_ACCOUNT_ID}/media`;
 
   const mediaRes = await fetch(mediaUrl, {
@@ -102,7 +110,7 @@ async function publishToInstagram(
     throw new Error("Meta /media no devolvió creation_id");
   }
 
-  // 2) Publicar el media container
+  // 3) Publicar el media container
   const publishUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/${IG_ACCOUNT_ID}/media_publish`;
 
   const publishRes = await fetch(publishUrl, {
