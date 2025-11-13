@@ -1,174 +1,108 @@
 // src/workers/createPost.pipeline.ts
-// Pipeline CREATE_POST: elegir producto + estilo + generar caption con caption-engine + guardar DRAFT
-
 import { supabase } from "../db/supabase.js";
 import { logger } from "../utils/logger.js";
-import { pickStyleWithEpsilonGreedy } from "../agent/styleSelection.js";
 import {
   chooseProductForCreatePost,
   type ProductRow,
 } from "../agent/productSelection.js";
+import { pickStyleWithEpsilonGreedy } from "../agent/styleSelection.js";
 import { generateCaption } from "../modules/caption.engine.js";
 
 type CreatePostPayload = {
   channel_target?: "IG" | "FB" | "BOTH";
+  source?: string;
 };
 
-// Normaliza cualquier cosa que nos devuelva caption-engine (objeto, string JSON, etc.)
-// y garantiza que SIEMPRE haya headline y caption no vacíos.
-function normalizeCaption(
-  raw: any,
-  productName: string,
-  style: string
-): { headline: string; caption: string } {
-  let res: any = raw;
+function normalizeUrl(u?: string | null): string | null {
+  if (!u) return null;
+  let s = u.trim();
+  if (!s) return null;
+  if (s.startsWith("//")) s = "https:" + s;
+  if (!/^https?:\/\//i.test(s)) return null;
+  return s;
+}
 
-  // Si viene un string, intentamos parsearlo como JSON
-  if (typeof res === "string") {
-    try {
-      const parsed = JSON.parse(res);
-      res = {
-        headline: parsed?.headline,
-        caption: parsed?.caption,
-      };
-    } catch {
-      // No es JSON, lo tratamos como caption crudo
-      res = { headline: "", caption: String(raw) };
-    }
+function isLikelyImage(u: string): boolean {
+  return /\.(png|jpe?g|webp|gif|bmp|tiff?)($|\?)/i.test(u);
+}
+
+function pickBestImageUrl(p: Partial<ProductRow>): string | null {
+  const pp: any = p; // evitar TS sobre campos dinámicos
+  const candidates = [
+    pp.image_url, pp.bild2, pp.bild3, pp.bild4,
+    pp.bild5, pp.bild6, pp.bild7,
+  ];
+  for (const c of candidates) {
+    const n = normalizeUrl(c);
+    if (n && isLikelyImage(n)) return n;
   }
-
-  let headline = String(res?.headline ?? "").trim();
-  let caption = String(res?.caption ?? "").trim();
-
-  // Si ambos vienen vacíos, usamos un fallback razonable
-  if (!headline && !caption) {
-    headline = `Neues ${style} Highlight: ${productName}`;
-    caption = `Entdecke ${productName} – kuratiert im Stil „${style}“. #dogonauts`;
-  } else {
-    if (!headline) {
-      headline = "Dogonauts Post";
-    }
-    if (!caption) {
-      caption = headline;
-    }
+  for (const c of candidates) {
+    const n = normalizeUrl(c);
+    if (n) return n;
   }
-
-  return { headline, caption };
+  return null;
 }
 
 export async function runCreatePostPipeline(job: {
   id: string;
   type: "CREATE_POST";
-  payload: CreatePostPayload | string | null;
+  payload: CreatePostPayload;
 }) {
-  // Payload puede venir como objeto o como string JSON desde job_queue (n8n)
-  let payload: CreatePostPayload = {};
+  const channelTarget = job.payload.channel_target ?? "BOTH";
+  const primaryChannel: "IG" | "FB" =
+    channelTarget === "BOTH" ? "IG" : channelTarget;
 
-  if (typeof job.payload === "string") {
-    try {
-      payload = JSON.parse(job.payload) as CreatePostPayload;
-    } catch {
-      payload = {};
-    }
-  } else if (job.payload && typeof job.payload === "object") {
-    payload = job.payload as CreatePostPayload;
+  logger.info({ jobId: job.id, channelTarget, primaryChannel }, "[CREATE_POST] start");
+
+  // 1) Producto
+  const product = await chooseProductForCreatePost();
+  if (!product) {
+    logger.warn({ jobId: job.id }, "[CREATE_POST] no product found");
+    return;
   }
 
-  const channelTarget = payload.channel_target ?? "BOTH";
-
-  logger.info(
-    { jobId: job.id, channelTarget },
-    "[CREATE_POST] Pipeline v3 (product + style + caption-engine)"
-  );
-
-  // 1) Elegir producto con Epsilon-Greedy adaptado al schema real
-  const product: ProductRow = await chooseProductForCreatePost();
-  logger.info(
-    { jobId: job.id, productId: product.id, productName: product.name },
-    "[CREATE_POST] Producto elegido"
-  );
-
-  // 2) Elegir estilo con Epsilon-Greedy
-  const primaryChannel =
-    channelTarget === "BOTH" ? "IG" : (channelTarget as "IG" | "FB");
-
+  // 2) Estilo (solo 1 declaración)
   const style = await pickStyleWithEpsilonGreedy(primaryChannel);
-  logger.info(
-    { jobId: job.id, style, channel: primaryChannel },
-    "[CREATE_POST] Estilo elegido"
-  );
 
-  // 3) Caption usando caption-engine (con cache en Supabase)
-  const rawCaptionRes = await generateCaption(
-    {
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price ?? 0,
-      category: product.category,
-      brand: product.brand,
-    } as any,
-    style
-  );
-
-  // Normalizamos por si viene raro (objeto, string JSON, vacío, etc.)
-  const { headline, caption } = normalizeCaption(
-    rawCaptionRes as any,
-    product.name,
-    style
-  );
-
-  const captionIG = caption;
-  const captionFB = caption; // más adelante se puede diferenciar por canal
-
-  const creativeBrief = `Visual basierend auf dem Stil "${style}": Produkt "${product.name}" im Fokus, klare Lesbarkeit des Headlines "${headline}", dezentes Dogonauts-Space-Branding.`;
-
-  const imagePrompt = `High quality product photo of "${product.name}" with a ${style} background, soft shadows, Dogonauts space-themed branding, Instagram feed ready, square format.`;
-
-  const rawAiResponse = JSON.stringify({
-    headline,
-    caption,
+  // 3) Caption
+  const { headline, caption } = await generateCaption({
+    product,
     style,
-    product_id: product.id,
+    channel: primaryChannel,
   });
 
-  // 4) Insertar DRAFT en generated_posts
+  // 4) Imagen del producto
+  const chosenImageUrl = pickBestImageUrl(product);
+  if (!chosenImageUrl) {
+    logger.warn(
+      { jobId: job.id, productId: (product as any).id },
+      "[CREATE_POST] no valid image url found; draft will be created without image_url"
+    );
+  }
+
+  // 5) Insert DRAFT
   const { data, error } = await supabase
-    .from("generated_posts" as any)
+    .from("generated_posts")
     .insert({
-      product_id: product.id,
-      channel_target: channelTarget,
-      caption_ig: captionIG,
-      caption_fb: captionFB,
-      creative_brief: creativeBrief,
-      image_prompt: imagePrompt,
-      tone: "funny", // por ahora fijo; luego lo puedes ligar a style
-      style,
       status: "DRAFT",
+      product_id: (product as any).id,
+      style,
+      caption_ig: caption,
+      headline,
+      channel_target: channelTarget,
       job_id: job.id,
-      raw_ai_response: rawAiResponse,
-    } as any)
+      image_url: chosenImageUrl ?? null,
+    })
     .select()
-    .maybeSingle();
+    .single();
 
   if (error) {
-    logger.error(
-      { jobId: job.id, error },
-      "[CREATE_POST] Error guardando DRAFT"
-    );
+    logger.error({ err: error, jobId: job.id }, "[CREATE_POST] insert error");
     throw error;
   }
 
   logger.info(
-    {
-      jobId: job.id,
-      generated_post_id: data?.id,
-      productId: product.id,
-      productName: product.name,
-      style,
-    },
-    "[CREATE_POST] DRAFT creado correctamente (v3)"
+    { jobId: job.id, generated_post_id: data.id, image_url: chosenImageUrl },
+    "[CREATE_POST] DRAFT created"
   );
-
-  return data;
 }

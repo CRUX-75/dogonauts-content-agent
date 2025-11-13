@@ -1,215 +1,158 @@
-// src/workers/publishPost.pipeline.ts
-// Pipeline PUBLISH_POST: publicar un generated_post en Instagram (o simularlo en DRY_RUN)
-
+// Pipeline PUBLISH_POST: usa generated_posts.image_url (o fallback a products), normaliza URL y reintenta si code 9007
 import { supabase } from "../db/supabase.js";
 import { logger } from "../utils/logger.js";
+import { postImageToInstagram } from "../integrations/meta/instagram.js"; // <- sin extensión// ^ asume que ya tienes algo como: create container -> publish -> returns media_id / error
 
-const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN ?? "";
-const IG_ACCOUNT_ID = process.env.IG_ACCOUNT_ID ?? "";
-const META_GRAPH_VERSION = process.env.META_GRAPH_VERSION ?? "v24.0";
-const META_PUBLISH_DRY_RUN = process.env.META_PUBLISH_DRY_RUN === "true";
-const META_DEFAULT_IMAGE_URL = process.env.META_DEFAULT_IMAGE_URL ?? "";
-const FB_PAGE_ID = process.env.FB_PAGE_ID ?? "";
-
-// ⏳ Delay configurable entre /media y /media_publish (por defecto 5000ms)
-const META_PUBLISH_DELAY_MS = Number(process.env.META_PUBLISH_DELAY_MS ?? "5000");
-
-// Helper simple de espera
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// Snapshot de configuración (sin loguear secretos)
-logger.info(
-  {
-    hasAccessToken: !!META_ACCESS_TOKEN,
-    hasIgAccountId: !!IG_ACCOUNT_ID,
-    hasDefaultImageUrl: !!META_DEFAULT_IMAGE_URL,
-    dryRunFlag: META_PUBLISH_DRY_RUN,
-    delayMs: META_PUBLISH_DELAY_MS,
-  },
-  "[PUBLISH_POST] Config Meta cargada"
-);
-
-type PublishPostPayload = {
+type PublishPayload = {
   generated_post_id: string;
-  // en el futuro: publish_target?: "IG" | "FB" | "BOTH";
 };
 
-async function publishToInstagram(
-  caption: string
-): Promise<{ meta_post_id: string; dryRun: boolean }> {
-  // 0) Validar configuración obligatoria
-  if (!META_ACCESS_TOKEN || !IG_ACCOUNT_ID) {
-    logger.error(
-      {
-        hasAccessToken: !!META_ACCESS_TOKEN,
-        hasIgAccountId: !!IG_ACCOUNT_ID,
-      },
-      "[PUBLISH_POST] Configuración Meta incompleta: falta ACCESS_TOKEN o IG_ACCOUNT_ID"
-    );
-    throw new Error(
-      "Meta config incompleta: falta META_ACCESS_TOKEN o IG_ACCOUNT_ID"
-    );
+function normalizeUrl(u?: string | null): string | null {
+  if (!u) return null;
+  let s = u.trim();
+  if (!s) return null;
+  if (s.startsWith("//")) s = "https:" + s;
+  if (!/^https?:\/\//i.test(s)) return null;
+  return s;
+}
+
+function isLikelyImage(u: string): boolean {
+  return /\.(png|jpe?g|webp|gif|bmp|tiff?)($|\?)/i.test(u);
+}
+
+async function getPostWithProduct(generated_post_id: string) {
+  const { data, error } = await supabase
+    .from("generated_posts")
+    .select(
+      `
+      id, caption_ig, style, product_id, image_url,
+      products:product_id (
+        id, product_name, image_url, bild2, bild3, bild4, bild5, bild6, bild7
+      )
+    `
+    )
+    .eq("id", generated_post_id)
+    .single();
+
+  if (error) {
+    throw error;
   }
+  return data as any; // tipa si quieres
+}
 
-  if (!META_DEFAULT_IMAGE_URL) {
-    logger.error({}, "[PUBLISH_POST] META_DEFAULT_IMAGE_URL vacío: no se puede publicar");
-    throw new Error("META_DEFAULT_IMAGE_URL vacío; no se puede publicar en IG");
+function pickBestFromRow(row: any): string | null {
+  // Preferimos la que ya guardamos en el DRAFT
+  const fromDraft = normalizeUrl(row?.image_url);
+  if (fromDraft) return fromDraft;
+
+  // Fallback a products.*
+  const p = row?.products ?? {};
+  const candidates = [
+    p.image_url, p.bild2, p.bild3, p.bild4, p.bild5, p.bild6, p.bild7,
+  ];
+  for (const c of candidates) {
+    const n = normalizeUrl(c);
+    if (n && isLikelyImage(n)) return n;
   }
-
-  // 1) DRY RUN explícito por flag
-  if (META_PUBLISH_DRY_RUN) {
-    logger.info({}, "[PUBLISH_POST] META_PUBLISH_DRY_RUN=true → NO llamamos a Graph, solo simulamos");
-    return { meta_post_id: "DRY_RUN_FLAG", dryRun: true };
+  for (const c of candidates) {
+    const n = normalizeUrl(c);
+    if (n) return n;
   }
+  return null;
+}
 
-  // 2) Crear media container
-  const mediaUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/${IG_ACCOUNT_ID}/media`;
+async function publishWithRetry(params: {
+  imageUrl: string;
+  caption: string;
+  maxRetries?: number;
+  waitMs?: number;
+}) {
+  const { imageUrl, caption } = params;
+  const maxRetries = params.maxRetries ?? 3;
+  const waitMs = params.waitMs ?? 3500;
 
-  const mediaRes = await fetch(mediaUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      image_url: META_DEFAULT_IMAGE_URL,
-      caption,
-      access_token: META_ACCESS_TOKEN,
-    }),
-  });
+  let lastErr: any = null;
 
-  const mediaBody = await mediaRes.text();
-  if (!mediaRes.ok) {
-    logger.error({ status: mediaRes.status, body: mediaBody }, "[PUBLISH_POST] Error en /media (IG)");
-    throw new Error(`Meta /media error ${mediaRes.status}: ${mediaBody || "unknown"}`);
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await postImageToInstagram({
+        image_url: imageUrl,
+        caption,
+      });
+      // asume que tu wrapper lanza error con code si falla
+      return res; // { media_id, id, permalink, ... }
+    } catch (err: any) {
+      lastErr = err;
+      const code = err?.code ?? err?.error_code ?? err?.response?.data?.error?.code;
+      logger.warn({ attempt, code, err }, "[PUBLISH_POST] IG publish failed");
+      // 9007: "Media ID is not available" (espera/propaga)
+      if (code === 9007 && attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      // otros errores: si hay más reintentos, reintenta 1 vez igual; si no, rompe
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      throw err;
+    }
   }
-
-  let mediaJson: any;
-  try {
-    mediaJson = JSON.parse(mediaBody);
-  } catch {
-    logger.error({ body: mediaBody }, "[PUBLISH_POST] Respuesta de /media no es JSON válido");
-    throw new Error("Meta /media devolvió una respuesta no JSON");
-  }
-
-  const creationId = mediaJson.id;
-  if (!creationId) {
-    logger.error({ mediaJson }, "[PUBLISH_POST] /media sin 'id' en la respuesta");
-    throw new Error("Meta /media no devolvió creation_id");
-  }
-
-  // 3) Esperar antes de publicar (IG tarda en dejar listo el media)
-  logger.info({ creationId, delayMs: META_PUBLISH_DELAY_MS }, "[PUBLISH_POST] Esperando antes de /media_publish");
-  await sleep(META_PUBLISH_DELAY_MS);
-
-  // 4) Publicar el media container
-  const publishUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/${IG_ACCOUNT_ID}/media_publish`;
-
-  const publishRes = await fetch(publishUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      creation_id: creationId,
-      access_token: META_ACCESS_TOKEN,
-    }),
-  });
-
-  const publishBody = await publishRes.text();
-  if (!publishRes.ok) {
-    logger.error({ status: publishRes.status, body: publishBody }, "[PUBLISH_POST] Error en /media_publish (IG)");
-    throw new Error(`Meta /media_publish error ${publishRes.status}: ${publishBody || "unknown"}`);
-  }
-
-  let publishJson: any;
-  try {
-    publishJson = JSON.parse(publishBody);
-  } catch {
-    logger.error({ body: publishBody }, "[PUBLISH_POST] Respuesta de /media_publish no es JSON válido");
-    throw new Error("Meta /media_publish devolvió una respuesta no JSON");
-  }
-
-  const metaPostId = publishJson.id ?? creationId;
-
-  logger.info({ metaPostId, creationId }, "[PUBLISH_POST] Publicación IG completada");
-
-  return { meta_post_id: String(metaPostId), dryRun: false };
+  throw lastErr;
 }
 
 export async function runPublishPostPipeline(job: {
   id: string;
   type: "PUBLISH_POST";
-  payload: PublishPostPayload | string | null;
+  payload: PublishPayload;
 }) {
-  let payload: PublishPostPayload | null = null;
+  logger.info({ jobId: job.id }, "[PUBLISH_POST] start");
 
-  if (typeof job.payload === "string") {
-    try {
-      payload = JSON.parse(job.payload) as PublishPostPayload;
-    } catch {
-      payload = null;
-    }
-  } else if (job.payload && typeof job.payload === "object") {
-    payload = job.payload as PublishPostPayload;
+  const row = await getPostWithProduct(job.payload.generated_post_id);
+  if (!row) {
+    logger.error({ jobId: job.id }, "[PUBLISH_POST] draft not found");
+    return;
   }
 
-  if (!payload?.generated_post_id) {
-    throw new Error("PUBLISH_POST job sin generated_post_id en payload");
+  const caption = (row.caption_ig ?? "").trim();
+  const imageUrl = pickBestFromRow(row);
+
+  if (!imageUrl) {
+    logger.error(
+      { jobId: job.id, generated_post_id: row.id },
+      "[PUBLISH_POST] no image url available"
+    );
+    throw new Error("No image URL available for publishing.");
   }
 
-  const postId = payload.generated_post_id;
+  const res = await publishWithRetry({
+    imageUrl,
+    caption,
+  });
 
-  logger.info({ jobId: job.id }, "[PUBLISH_POST] Ejecutando pipeline de publicación");
-  logger.info({ jobId: job.id, generated_post_id: postId }, "[PUBLISH_POST] Iniciando pipeline");
-
-  // 1) Leer el DRAFT
-  const { data: post, error: fetchErr } = await supabase
-    .from("generated_posts" as any)
-    .select("*")
-    .eq("id", postId)
-    .maybeSingle();
-
-  if (fetchErr) {
-    logger.error({ jobId: job.id, error: fetchErr }, "[PUBLISH_POST] Error leyendo generated_post");
-    throw fetchErr;
-  }
-
-  if (!post) throw new Error(`generated_post no encontrado: ${postId}`);
-
-  if (post.status !== "DRAFT") {
-    logger.warn({ jobId: job.id, status: post.status }, "[PUBLISH_POST] Post no está en DRAFT, no se publica");
-    return post;
-  }
-
-  const caption = String(post.caption_ig ?? "").trim();
-  if (!caption) {
-    logger.warn({ jobId: job.id }, "[PUBLISH_POST] caption_ig vacío, usando fallback simple");
-  }
-
-  const finalCaption = caption || "Neuer Dogonauts-Post – jetzt entdecken! #dogonauts";
-
-  // 2) Llamar (o simular) a Instagram Graph API
-  const { meta_post_id, dryRun } = await publishToInstagram(finalCaption);
-
-  // 3) Marcar como PUBLISHED en Supabase
-  const { data: updated, error: updateErr } = await supabase
-    .from("generated_posts" as any)
+  // Marca como PUBLISHED
+  const { error } = await supabase
+    .from("generated_posts")
     .update({
       status: "PUBLISHED",
       published_at: new Date().toISOString(),
-      meta_post_id,
+      meta_post_id: res?.id ?? res?.media_id ?? null,
+      permalink: res?.permalink ?? null,
     })
-    .eq("id", postId)
-    .select()
-    .maybeSingle();
+    .eq("id", row.id);
 
-  if (updateErr) {
-    logger.error({ jobId: job.id, error: updateErr }, "[PUBLISH_POST] Error actualizando a PUBLISHED");
-    throw updateErr;
+  if (error) {
+    logger.error({ jobId: job.id, err: error }, "[PUBLISH_POST] update error");
+    throw error;
   }
 
   logger.info(
-    { jobId: job.id, generated_post_id: postId, meta_post_id, dryRun },
-    "[PUBLISH_POST] Post marcado como PUBLISHED"
+    {
+      jobId: job.id,
+      generated_post_id: row.id,
+      image_url: imageUrl,
+      meta_post_id: res?.id ?? res?.media_id,
+    },
+    "[PUBLISH_POST] done"
   );
-
-  return updated;
 }
