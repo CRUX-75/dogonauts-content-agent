@@ -27,10 +27,12 @@ function isLikelyImage(u: string): boolean {
 }
 
 function pickBestImageUrl(p: Partial<ProductRow>): string | null {
-  const pp: any = p; // evitar TS sobre campos dinámicos
+  // si productSelection ya trae first_image_url, úsala directa
+  if (p.first_image_url) return p.first_image_url;
+
   const candidates = [
-    pp.image_url, pp.bild2, pp.bild3, pp.bild4,
-    pp.bild5, pp.bild6, pp.bild7,
+    p.image_url, p.bild2, p.bild3, p.bild4,
+    p.bild5, p.bild6, p.bild7,
   ];
   for (const c of candidates) {
     const n = normalizeUrl(c);
@@ -61,7 +63,7 @@ export async function runCreatePostPipeline(job: {
     return;
   }
 
-  // 2) Estilo (solo 1 declaración)
+  // 2) Estilo
   const style = await pickStyleWithEpsilonGreedy(primaryChannel);
 
   // 3) Caption
@@ -71,7 +73,7 @@ export async function runCreatePostPipeline(job: {
     channel: primaryChannel,
   });
 
-  // 4) Imagen del producto
+  // 4) Imagen del producto → se guarda en el DRAFT
   const chosenImageUrl = pickBestImageUrl(product);
   if (!chosenImageUrl) {
     logger.warn(
@@ -82,7 +84,7 @@ export async function runCreatePostPipeline(job: {
 
   // 5) Insert DRAFT
   const { data, error } = await supabase
-    .from("generated_posts")
+    .from("generated_posts" as any)
     .insert({
       status: "DRAFT",
       product_id: (product as any).id,
@@ -92,9 +94,9 @@ export async function runCreatePostPipeline(job: {
       channel_target: channelTarget,
       job_id: job.id,
       image_url: chosenImageUrl ?? null,
-    })
+    } as any)
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) {
     logger.error({ err: error, jobId: job.id }, "[CREATE_POST] insert error");
@@ -102,7 +104,7 @@ export async function runCreatePostPipeline(job: {
   }
 
   logger.info(
-    { jobId: job.id, generated_post_id: data.id, image_url: chosenImageUrl },
+    { jobId: job.id, generated_post_id: data?.id, image_url: chosenImageUrl },
     "[CREATE_POST] DRAFT created"
   );
 }

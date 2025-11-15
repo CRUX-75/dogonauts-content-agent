@@ -7,21 +7,77 @@ const PRODUCT_COOLDOWN_DAYS = Number(process.env.PRODUCT_COOLDOWN_DAYS ?? "7");
 export interface ProductRow {
   id: number;
   name: string;
-  description?: string;
-  price?: number;
-  category?: string;
-  brand?: string;
+  suchnummer?: string;
+  artikelnummer?: string;
+  category?: string;     // kategorie
+  brand?: string;        // hersteller
+  price?: number | null; // verkaufspreis
+  uvp?: number | null;   // UVP
+  // imágenes crudas de la tabla
+  image_url?: string | null;
+  bild2?: string | null;
+  bild3?: string | null;
+  bild4?: string | null;
+  bild5?: string | null;
+  bild6?: string | null;
+  bild7?: string | null;
+  // imagen lista para usar (normalizada y validada)
+  first_image_url?: string | null;
+  // scoring
   perf_score?: number;
+}
+
+function normalizeUrl(u?: string | null): string | null {
+  if (!u) return null;
+  let s = String(u).trim();
+  if (!s) return null;
+  if (s.startsWith("//")) s = "https:" + s;
+  if (!/^https?:\/\//i.test(s)) return null;
+  return s;
+}
+
+function isLikelyImage(u: string): boolean {
+  return /\.(png|jpe?g|webp|gif|bmp|tiff?)($|\?)/i.test(u);
+}
+
+function pickBestImageUrlFromProduct(p: Partial<ProductRow>): string | null {
+  const candidates = [
+    p.image_url, p.bild2, p.bild3, p.bild4, p.bild5, p.bild6, p.bild7,
+  ];
+  // 1º: que “parezcan imagen”
+  for (const c of candidates) {
+    const n = normalizeUrl(c);
+    if (n && isLikelyImage(n)) return n;
+  }
+  // 2º: cualquier URL https válida
+  for (const c of candidates) {
+    const n = normalizeUrl(c);
+    if (n) return n;
+  }
+  return null;
 }
 
 export async function chooseProductForCreatePost(
   epsilon: number = DEFAULT_EPSILON
 ): Promise<ProductRow> {
-  // 1) Candidatos: productos "Im Verkauf"
+  // 1) Candidatos: productos "Im Verkauf" (en venta)
   const { data: products, error: prodError } = await supabase
     .from("products" as any)
-    .select("*")
-    .eq("verkaufsstatus", "Im Verkauf") // 👈 en vez de is_active/stock
+    .select(
+      `
+      id,
+      product_name,
+      suchnummer,
+      artikelnummer,
+      verkaufsstatus,
+      kategorie,
+      hersteller,
+      verkaufspreis,
+      "UVP",
+      image_url, bild2, bild3, bild4, bild5, bild6, bild7
+    `
+    )
+    .eq("verkaufsstatus", "Im Verkauf")
     .limit(500);
 
   if (prodError) throw prodError;
@@ -29,12 +85,12 @@ export async function chooseProductForCreatePost(
     throw new Error("No hay productos 'Im Verkauf' en la tabla products.");
   }
 
+  // 2) Cooldown: evitar repetir producto en ventana reciente
   const now = new Date();
   const cooldownStart = new Date(
     now.getTime() - PRODUCT_COOLDOWN_DAYS * 24 * 60 * 60 * 1000
   ).toISOString();
 
-  // 2) Últimos posts recientes por producto (para cooldown)
   const { data: lastPosts, error: postsError } = await supabase
     .from("generated_posts" as any)
     .select("product_id, created_at")
@@ -63,24 +119,36 @@ export async function chooseProductForCreatePost(
     perfMap.set(Number(row.product_id), Number(row.perf_score) || 0);
   });
 
-  // Helper para construir ProductRow usando campos reales (artikelnummer/suchnummer)
+  // Helper para mapear un registro de DB a ProductRow completo
   const toProductRow = (p: any): ProductRow => {
-    const fallbackName =
-      p.name ??
+    const name =
+      p.product_name ??
       p.suchnummer ??
       p.artikelnummer ??
-      p.product_title ??
       "Dogonauts Produkt";
 
-    return {
+    const row: ProductRow = {
       id: Number(p.id),
-      name: String(fallbackName),
-      description: p.description ?? undefined,
-      price: p.price ?? undefined,
-      category: p.category ?? undefined,
-      brand: p.brand ?? undefined,
+      name: String(name),
+      suchnummer: p.suchnummer ?? undefined,
+      artikelnummer: p.artikelnummer ?? undefined,
+      category: p.kategorie ?? undefined,
+      brand: p.hersteller ?? undefined,
+      price: p.verkaufspreis ?? null,
+      uvp: p.UVP ?? null,
+      image_url: p.image_url ?? null,
+      bild2: p.bild2 ?? null,
+      bild3: p.bild3 ?? null,
+      bild4: p.bild4 ?? null,
+      bild5: p.bild5 ?? null,
+      bild6: p.bild6 ?? null,
+      bild7: p.bild7 ?? null,
+      first_image_url: null, // la resolvemos abajo
       perf_score: perfMap.get(Number(p.id)) ?? 0,
     };
+
+    row.first_image_url = pickBestImageUrlFromProduct(row);
+    return row;
   };
 
   // 4) Aplicar cooldown
@@ -88,7 +156,8 @@ export async function chooseProductForCreatePost(
     const id = Number(p.id);
     const lastCreatedAt = recentMap.get(id);
     if (lastCreatedAt) {
-      return []; // en cooldown → lo saltamos
+      // en cooldown → lo saltamos
+      return [];
     }
     return [toProductRow(p)];
   });
@@ -113,8 +182,7 @@ export async function chooseProductForCreatePost(
   const bestScore = sorted[0]?.perf_score ?? 0;
   const topK = sorted.filter((p) => (p.perf_score ?? 0) === bestScore);
 
-  const chosen =
-    topK[Math.floor(Math.random() * topK.length)] ?? sorted[0];
+  const chosen = topK[Math.floor(Math.random() * topK.length)] ?? sorted[0];
 
   console.log(
     "[PRODUCT] EXPLOIT →",

@@ -1,5 +1,5 @@
 // src/integrations/meta/instagram.ts
-import fetch from "node-fetch";
+
 
 const IG_ACCOUNT_ID = process.env.META_IG_BUSINESS_ACCOUNT_ID!;
 const PAGE_ACCESS_TOKEN = process.env.META_PAGE_ACCESS_TOKEN!;
